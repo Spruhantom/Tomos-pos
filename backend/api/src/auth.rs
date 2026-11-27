@@ -787,13 +787,19 @@ pub async fn initial_setup(
         );
     }
 
-    if let Err(db_error) = sqlx::query(
-        "INSERT INTO audit_events (tenant_id, actor_user_id, event_type, entity_type, entity_id) \
-         VALUES ($1, $2, 'installation.initialised', 'tenant', $1)",
+    let audit_context = AuthContext {
+        user_id,
+        tenant_id,
+        membership_id,
+    };
+    if let Err(db_error) = crate::audit::record_event(
+        &mut tx,
+        &audit_context,
+        crate::audit::AuditEventType::BusinessCreated,
+        crate::audit::AuditEntityType::Business,
+        Some(business_id),
+        serde_json::json!({ "source": "initial_setup" }),
     )
-    .bind(tenant_id)
-    .bind(user_id)
-    .execute(&mut *tx)
     .await
     {
         tracing::error!(%db_error, "initial setup audit event could not be recorded");
