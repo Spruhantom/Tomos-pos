@@ -71,6 +71,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cookie_secure: env::var("COOKIE_SECURE")
             .map(|value| value.eq_ignore_ascii_case("true"))
             .unwrap_or(true),
+        allowed_origin: env::var("APP_ORIGIN")
+            .unwrap_or_else(|_| "http://localhost:3000".to_string()),
     };
 
     let app = Router::new()
