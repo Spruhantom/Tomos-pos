@@ -1118,17 +1118,6 @@ pub async fn accept_staff_invitation(
         );
     }
 
-    let password_hash = match hash_password(&request.password) {
-        Ok(hash) => hash,
-        Err(hash_error) => {
-            tracing::error!(%hash_error, "invited user password hashing failed");
-            return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "invitation could not be accepted",
-            );
-        }
-    };
-
     let mut tx = match state.db.begin().await {
         Ok(tx) => tx,
         Err(db_error) => {
@@ -1171,6 +1160,18 @@ pub async fn accept_staff_invitation(
         }
         Err(db_error) => {
             tracing::error!(%db_error, "invitation token lookup failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be accepted",
+            );
+        }
+    };
+
+    // Do expensive password hashing only after the bearer token has been validated.
+    let password_hash = match hash_password(&request.password) {
+        Ok(hash) => hash,
+        Err(hash_error) => {
+            tracing::error!(%hash_error, "invited user password hashing failed");
             return error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "invitation could not be accepted",
