@@ -124,11 +124,11 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
 
     for (tenant_id, user_id) in [(tenant_a, user_a), (tenant_b, user_b)] {
         sqlx::query("INSERT INTO tenant_memberships (tenant_id, user_id) VALUES ($1, $2)")
-        .bind(tenant_id)
-        .bind(user_id)
-        .execute(&pool)
-        .await
-        .expect("test tenant membership should be created");
+            .bind(tenant_id)
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .expect("test tenant membership should be created");
     }
 
     for (tenant_id, legal_name) in [(tenant_a, "Tenant A Ltd"), (tenant_b, "Tenant B Ltd")] {
