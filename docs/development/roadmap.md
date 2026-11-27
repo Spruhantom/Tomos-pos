@@ -21,7 +21,9 @@
 - [x] Argon2id password hashing and verification.
 - [x] One-time first-run owner, tenant and business provisioning.
 - [x] Login, logout and current-user session endpoints with hashed opaque session tokens.
-- [ ] Login rate limiting, CSRF/origin protection and MFA.
+- [x] Per-account login throttling with persistent PostgreSQL counters.
+- [x] Exact-origin checks for state-changing authentication requests.
+- [ ] MFA and broader CSRF protections for future state-changing API routes.
 - [ ] Role/permission enforcement middleware.
 - [ ] Transaction-scoped tenant context for authenticated API requests and full cross-tenant endpoint tests.
 - [ ] Append-only audit service and tests.
