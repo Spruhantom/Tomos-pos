@@ -7,12 +7,16 @@ use crate::auth::AuthContext;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuditEventType {
     BusinessCreated,
+    StaffInvited,
+    StaffInvitationAccepted,
 }
 
 impl AuditEventType {
     const fn as_str(self) -> &'static str {
         match self {
             Self::BusinessCreated => "business.created",
+            Self::StaffInvited => "staff.invited",
+            Self::StaffInvitationAccepted => "staff.invitation_accepted",
         }
     }
 }
@@ -21,12 +25,16 @@ impl AuditEventType {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuditEntityType {
     Business,
+    Invitation,
+    Membership,
 }
 
 impl AuditEntityType {
     const fn as_str(self) -> &'static str {
         match self {
             Self::Business => "business",
+            Self::Invitation => "staff_invitation",
+            Self::Membership => "membership",
         }
     }
 }
@@ -66,5 +74,7 @@ mod tests {
     fn audit_vocabulary_is_stable_and_server_defined() {
         assert_eq!(AuditEventType::BusinessCreated.as_str(), "business.created");
         assert_eq!(AuditEntityType::Business.as_str(), "business");
+        assert_eq!(AuditEventType::StaffInvited.as_str(), "staff.invited");
+        assert_eq!(AuditEntityType::Invitation.as_str(), "staff_invitation");
     }
 }
