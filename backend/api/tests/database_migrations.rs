@@ -190,3 +190,62 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         .expect("RLS test transaction should roll back");
     pool.close().await;
 }
+
+
+#[tokio::test]
+async fn audit_events_reject_update_delete_and_truncate() {
+    let database_url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set for database integration tests");
+    let pool = PgPool::connect(&database_url)
+        .await
+        .expect("test database should accept connections");
+
+    sqlx::migrate!("../../database/migrations")
+        .run(&pool)
+        .await
+        .expect("all database migrations should apply");
+
+    let tenant_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO tenants (slug, display_name) VALUES ($1, 'Audit append-only test') RETURNING id",
+    )
+    .bind(format!("audit-{}", uuid::Uuid::new_v4()))
+    .fetch_one(&pool)
+    .await
+    .expect("audit test tenant should be created");
+
+    let mut tx = pool.begin().await.expect("audit test transaction should start");
+    sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
+        .bind(tenant_id.to_string())
+        .execute(&mut *tx)
+        .await
+        .expect("tenant context should be set");
+
+    let event_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO audit_events (tenant_id, event_type, entity_type) \\
+         VALUES ($1, 'test.created', 'test') RETURNING id",
+    )
+    .bind(tenant_id)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("audit event should be insertable");
+
+    let update = sqlx::query("UPDATE audit_events SET event_type = 'tampered' WHERE id = $1")
+        .bind(event_id)
+        .execute(&mut *tx)
+        .await;
+    assert!(update.is_err(), "audit event updates must be rejected");
+
+    let delete = sqlx::query("DELETE FROM audit_events WHERE id = $1")
+        .bind(event_id)
+        .execute(&mut *tx)
+        .await;
+    assert!(delete.is_err(), "audit event deletion must be rejected");
+
+    let truncate = sqlx::query("TRUNCATE audit_events").execute(&mut *tx).await;
+    assert!(truncate.is_err(), "audit ledger truncation must be rejected");
+
+    tx.rollback()
+        .await
+        .expect("audit test transaction should roll back");
+    pool.close().await;
+}
