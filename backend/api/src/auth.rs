@@ -150,11 +150,19 @@ pub async fn login(
 
     let email_normalized = request.email.trim().to_lowercase();
     match login_is_rate_limited(&state, &email_normalized).await {
-        Ok(true) => return error(StatusCode::TOO_MANY_REQUESTS, "too many login attempts; try again later"),
+        Ok(true) => {
+            return error(
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many login attempts; try again later",
+            )
+        }
         Ok(false) => {}
         Err(db_error) => {
             tracing::error!(%db_error, "login rate-limit check failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "login could not be completed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "login could not be completed",
+            );
         }
     }
 
@@ -287,7 +295,6 @@ pub async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response 
     .into_response()
 }
 
-
 #[derive(Clone)]
 pub struct AuthContext {
     pub user_id: uuid::Uuid,
@@ -316,14 +323,20 @@ pub async fn require_tenant(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| uuid::Uuid::parse_str(value).ok())
     else {
-        return error(StatusCode::BAD_REQUEST, "a valid X-Tenant-ID header is required");
+        return error(
+            StatusCode::BAD_REQUEST,
+            "a valid X-Tenant-ID header is required",
+        );
     };
 
     let mut tx = match state.db.begin().await {
         Ok(tx) => tx,
         Err(db_error) => {
             tracing::error!(%db_error, "tenant authentication transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "tenant access could not be checked");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "tenant access could not be checked",
+            );
         }
     };
 
@@ -340,7 +353,10 @@ pub async fn require_tenant(
         Ok(None) => return error(StatusCode::UNAUTHORIZED, "session is invalid or expired"),
         Err(db_error) => {
             tracing::error!(%db_error, "tenant session lookup failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "tenant access could not be checked");
+            return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "tenant access could not be checked",
+        );
         }
     };
 
@@ -363,7 +379,12 @@ pub async fn require_tenant(
     .await
     {
         Ok(Some(membership_id)) => membership_id,
-        Ok(None) => return error(StatusCode::FORBIDDEN, "user is not an active member of this tenant"),
+        Ok(None) => {
+            return error(
+                StatusCode::FORBIDDEN,
+                "user is not an active member of this tenant",
+            )
+        }
         Err(db_error) => {
             tracing::error!(%db_error, "tenant membership lookup failed");
             return error(StatusCode::INTERNAL_SERVER_ERROR, "tenant access could not be checked");
@@ -416,7 +437,10 @@ pub async fn require_permission(
         Ok(tx) => tx,
         Err(db_error) => {
             tracing::error!(%db_error, "permission check transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "permission could not be checked");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "permission could not be checked",
+            );
         }
     };
 
