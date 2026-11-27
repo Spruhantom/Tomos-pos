@@ -94,7 +94,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/v1/auth/login", post(auth::login))
         .route("/api/v1/auth/logout", post(auth::logout))
         .route("/api/v1/auth/me", get(auth::me))
-        .route("/api/v1/staff/invitations/accept", post(auth::accept_staff_invitation))
+        .route(
+            "/api/v1/staff/invitations/accept",
+            post(auth::accept_staff_invitation),
+        )
         .route(
             "/api/v1/staff/invitations",
             post(auth::create_staff_invitation)
