@@ -45,11 +45,11 @@ Set `COOKIE_SECURE=true` whenever the application is served over HTTPS. The samp
 
 ## Current limitations — not production ready
 
-- Login rate limiting and account lockout are not implemented yet.
-- CSRF/origin validation for cookie-authenticated state-changing routes is outstanding.
+- Staff invitations and account management after initial setup are not implemented yet.
+- CSRF/origin validation currently covers authentication state changes; all future cookie-authenticated mutation routes must apply the same origin validation or a stronger CSRF token strategy.
 - MFA, password reset, email verification and session/device management are outstanding.
-- Authentication is not yet connected to tenant-scoped authorisation middleware.
-- Business registration/invitations after first-run setup are not implemented.
+- Tenant-scoped authorisation middleware is implemented for the tenant context endpoint; all future business routes still need explicit permission middleware and tenant-scoped transactions.
+- Business registration and staff invitations after first-run setup are not implemented.
 - The API currently has no web frontend.
 
 Do not expose this API to the public internet or use it for live business data until the outstanding security controls and integration tests are complete.
@@ -62,3 +62,8 @@ Do not expose this API to the public internet or use it for live business data u
 The tenant middleware places a server-validated `AuthContext` into the request. Business handlers must use `begin_tenant_transaction` with that context so both `app.user_id` and `app.tenant_id` are set transaction-locally before querying RLS-protected tables. Do not use a plain pool query for tenant-owned records.
 
 The reusable permission middleware checks the permission key against the authenticated membership's assigned roles. Apply it to each protected route with the exact permission required (for example `business.manage` or `reports.read`). No business-management routes are exposed yet; the middleware is the foundation for those routes. Route setup must put the tenant middleware outside the permission middleware so the latter receives the validated `AuthContext`. The permission key should be fixed in server route configuration, never supplied by the client.
+
+
+## Audit event service
+
+The append-only audit ledger is protected by database triggers that reject row updates, row deletes and table truncation. The API's `audit::record_event` helper accepts only server-defined event and entity enums and writes using the caller's tenant-scoped transaction. Business handlers should call it before committing the transaction so the business change and its audit record succeed or fail together. Event payloads must contain only necessary business metadata; never include passwords, session tokens, payment-card data or other secrets.
