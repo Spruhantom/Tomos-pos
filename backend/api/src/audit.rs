@@ -3,25 +3,16 @@ use sqlx::{Postgres, Transaction};
 
 use crate::auth::AuthContext;
 
-/// The supported audit event vocabulary. New event types must be added here
-/// so handlers cannot write arbitrary client-controlled event names.
+/// Supported audit event names are defined by the server, never by clients.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuditEventType {
     BusinessCreated,
-    BusinessUpdated,
-    StaffInvited,
-    StaffRoleChanged,
-    StaffDeactivated,
 }
 
 impl AuditEventType {
     const fn as_str(self) -> &'static str {
         match self {
             Self::BusinessCreated => "business.created",
-            Self::BusinessUpdated => "business.updated",
-            Self::StaffInvited => "staff.invited",
-            Self::StaffRoleChanged => "staff.role_changed",
-            Self::StaffDeactivated => "staff.deactivated",
         }
     }
 }
@@ -30,16 +21,12 @@ impl AuditEventType {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuditEntityType {
     Business,
-    Membership,
-    Role,
 }
 
 impl AuditEntityType {
     const fn as_str(self) -> &'static str {
         match self {
             Self::Business => "business",
-            Self::Membership => "membership",
-            Self::Role => "role",
         }
     }
 }
@@ -78,10 +65,6 @@ mod tests {
     #[test]
     fn audit_vocabulary_is_stable_and_server_defined() {
         assert_eq!(AuditEventType::BusinessCreated.as_str(), "business.created");
-        assert_eq!(
-            AuditEventType::StaffRoleChanged.as_str(),
-            "staff.role_changed"
-        );
-        assert_eq!(AuditEntityType::Membership.as_str(), "membership");
+        assert_eq!(AuditEntityType::Business.as_str(), "business");
     }
 }
