@@ -191,7 +191,6 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     pool.close().await;
 }
 
-
 #[tokio::test]
 async fn audit_events_reject_update_delete_and_truncate() {
     let database_url = std::env::var("DATABASE_URL")
@@ -213,7 +212,10 @@ async fn audit_events_reject_update_delete_and_truncate() {
     .await
     .expect("audit test tenant should be created");
 
-    let mut tx = pool.begin().await.expect("audit test transaction should start");
+    let mut tx = pool
+        .begin()
+        .await
+        .expect("audit test transaction should start");
     sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
         .bind(tenant_id.to_string())
         .execute(&mut *tx)
@@ -262,7 +264,10 @@ async fn audit_events_reject_update_delete_and_truncate() {
         .await
         .expect("truncate savepoint should be created");
     let truncate = sqlx::query("TRUNCATE audit_events").execute(&mut *tx).await;
-    assert!(truncate.is_err(), "audit ledger truncation must be rejected");
+    assert!(
+        truncate.is_err(),
+        "audit ledger truncation must be rejected"
+    );
     sqlx::query("ROLLBACK TO SAVEPOINT audit_truncate_attempt")
         .execute(&mut *tx)
         .await
