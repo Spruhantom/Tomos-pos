@@ -3,8 +3,9 @@ use argon2::{
     Argon2,
 };
 use axum::{
-    extract::State,
+    extract::{Extension, Request, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
+    middleware::Next,
     response::{IntoResponse, Response},
     Json,
 };
@@ -284,6 +285,173 @@ pub async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response 
         display_name: user.display_name,
     })
     .into_response()
+}
+
+
+#[derive(Clone)]
+pub struct AuthContext {
+    pub user_id: uuid::Uuid,
+    pub tenant_id: uuid::Uuid,
+    pub membership_id: uuid::Uuid,
+}
+
+#[derive(Serialize)]
+pub struct TenantContextResponse {
+    pub user_id: String,
+    pub tenant_id: String,
+    pub membership_id: String,
+}
+
+pub async fn require_tenant(
+    State(state): State<AuthState>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let Some(token) = token_from_headers(request.headers()) else {
+        return error(StatusCode::UNAUTHORIZED, "authentication required");
+    };
+    let Some(tenant_id) = request
+        .headers()
+        .get("x-tenant-id")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| uuid::Uuid::parse_str(value).ok())
+    else {
+        return error(StatusCode::BAD_REQUEST, "a valid X-Tenant-ID header is required");
+    };
+
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "tenant authentication transaction failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "tenant access could not be checked");
+        }
+    };
+
+    let user_id: uuid::Uuid = match sqlx::query_scalar(
+        "SELECT u.id FROM user_sessions s JOIN users u ON u.id = s.user_id \
+         WHERE s.token_hash = $1 AND s.revoked_at IS NULL \
+           AND s.expires_at > now() AND u.is_active = TRUE",
+    )
+    .bind(token_hash(token))
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(user_id)) => user_id,
+        Ok(None) => return error(StatusCode::UNAUTHORIZED, "session is invalid or expired"),
+        Err(db_error) => {
+            tracing::error!(%db_error, "tenant session lookup failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "tenant access could not be checked");
+        }
+    };
+
+    if let Err(db_error) = sqlx::query("SELECT set_config('app.user_id', $1, true)")
+        .bind(user_id.to_string())
+        .execute(&mut *tx)
+        .await
+    {
+        tracing::error!(%db_error, "tenant user context setup failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "tenant access could not be checked");
+    }
+
+    let membership_id: uuid::Uuid = match sqlx::query_scalar(
+        "SELECT id FROM tenant_memberships \
+         WHERE tenant_id = $1 AND user_id = $2 AND status = 'active'",
+    )
+    .bind(tenant_id)
+    .bind(user_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(membership_id)) => membership_id,
+        Ok(None) => return error(StatusCode::FORBIDDEN, "user is not an active member of this tenant"),
+        Err(db_error) => {
+            tracing::error!(%db_error, "tenant membership lookup failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "tenant access could not be checked");
+        }
+    };
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "tenant authentication transaction commit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "tenant access could not be checked");
+    }
+
+    request.extensions_mut().insert(AuthContext {
+        user_id,
+        tenant_id,
+        membership_id,
+    });
+
+    next.run(request).await
+}
+
+pub async fn begin_tenant_transaction(
+    state: &AuthState,
+    context: &AuthContext,
+) -> Result<sqlx::Transaction<'static, sqlx::Postgres>, sqlx::Error> {
+    let mut tx = state.db.begin().await?;
+    sqlx::query("SELECT set_config('app.user_id', $1, true)")
+        .bind(context.user_id.to_string())
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
+        .bind(context.tenant_id.to_string())
+        .execute(&mut *tx)
+        .await?;
+    Ok(tx)
+}
+
+#[derive(Clone)]
+pub struct PermissionState {
+    pub auth: AuthState,
+    pub permission_key: &'static str,
+}
+
+pub async fn require_permission(
+    State(state): State<PermissionState>,
+    Extension(context): Extension<AuthContext>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let mut tx = match begin_tenant_transaction(&state.auth, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "permission check transaction failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "permission could not be checked");
+        }
+    };
+
+    let permitted: bool = match sqlx::query_scalar(
+        "SELECT EXISTS ( \
+           SELECT 1 FROM membership_roles mr \
+           JOIN role_permissions rp ON rp.tenant_id = mr.tenant_id AND rp.role_id = mr.role_id \
+           JOIN permissions p ON p.id = rp.permission_id \
+           WHERE mr.tenant_id = $1 AND mr.membership_id = $2 \
+             AND p.permission_key = $3 \
+         )",
+    )
+    .bind(context.tenant_id)
+    .bind(context.membership_id)
+    .bind(state.permission_key)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(permitted) => permitted,
+        Err(db_error) => {
+            tracing::error!(%db_error, "permission lookup failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "permission could not be checked");
+        }
+    };
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "permission check transaction commit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "permission could not be checked");
+    }
+
+    if !permitted {
+        return error(StatusCode::FORBIDDEN, "required permission is missing");
+    }
+
+    next.run(request).await
 }
 
 #[cfg(test)]
