@@ -1,4 +1,5 @@
-mod audit;\nmod auth;
+mod audit;
+mod auth;
 
 use axum::{
     extract::{Extension, State},
