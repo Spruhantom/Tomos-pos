@@ -456,6 +456,9 @@ pub async fn require_permission(
     let permitted: bool = match sqlx::query_scalar(
         "SELECT EXISTS ( \
            SELECT 1 FROM membership_roles mr \
+           JOIN tenant_memberships tm \
+             ON tm.tenant_id = mr.tenant_id AND tm.id = mr.membership_id \
+            AND tm.user_id = $4 AND tm.status = 'active' \
            JOIN role_permissions rp ON rp.tenant_id = mr.tenant_id AND rp.role_id = mr.role_id \
            JOIN permissions p ON p.id = rp.permission_id \
            WHERE mr.tenant_id = $1 AND mr.membership_id = $2 \
@@ -465,6 +468,7 @@ pub async fn require_permission(
     .bind(context.tenant_id)
     .bind(context.membership_id)
     .bind(state.permission_key)
+    .bind(context.user_id)
     .fetch_one(&mut *tx)
     .await
     {
