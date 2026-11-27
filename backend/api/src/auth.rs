@@ -230,3 +230,250 @@ mod tests {
         assert!(!encoded.contains("correct horse"));
     }
 }
+
+
+#[derive(Deserialize)]
+pub struct InitialSetupRequest {
+    pub email: String,
+    pub password: String,
+    pub display_name: String,
+    pub tenant_name: String,
+    pub tenant_slug: String,
+    pub legal_business_name: String,
+}
+
+pub async fn initial_setup(
+    State(state): State<AuthState>,
+    Json(request): Json<InitialSetupRequest>,
+) -> Response {
+    let email = request.email.trim();
+    let email_normalized = email.to_lowercase();
+    let tenant_slug = request.tenant_slug.trim().to_lowercase();
+
+    if email.len() > 320
+        || !email.contains('@')
+        || request.password.len() < 12
+        || request.password.len() > 1024
+        || request.display_name.trim().is_empty()
+        || request.display_name.len() > 120
+        || request.tenant_name.trim().is_empty()
+        || request.tenant_name.len() > 160
+        || request.legal_business_name.trim().is_empty()
+        || request.legal_business_name.len() > 200
+        || tenant_slug.len() < 3
+        || tenant_slug.len() > 48
+        || !tenant_slug
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        || tenant_slug.starts_with('-')
+        || tenant_slug.ends_with('-')
+    {
+        return error(StatusCode::BAD_REQUEST, "setup details are invalid; use a 12-character password and a valid tenant slug");
+    }
+
+    let password_hash = match hash_password(&request.password) {
+        Ok(hash) => hash,
+        Err(hash_error) => {
+            tracing::error!(%hash_error, "initial password hashing failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "initial setup could not be completed");
+        }
+    };
+
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "initial setup transaction could not start");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "initial setup could not be completed");
+        }
+    };
+
+    // Serialise concurrent setup requests. Only the first installation owner can be created.
+    if let Err(db_error) = sqlx::query("SELECT pg_advisory_xact_lock(741203)")
+        .execute(&mut *tx)
+        .await
+    {
+        tracing::error!(%db_error, "initial setup lock failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "initial setup could not be completed");
+    }
+
+    let existing_users: i64 = match sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(&mut *tx)
+        .await
+    {
+        Ok(count) => count,
+        Err(db_error) => {
+            tracing::error!(%db_error, "initial setup user check failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "initial setup could not be completed");
+        }
+    };
+
+    if existing_users > 0 {
+        return error(StatusCode::CONFLICT, "initial setup has already been completed");
+    }
+
+    let tenant_id: uuid::Uuid = match sqlx::query_scalar(
+        "INSERT INTO tenants (slug, display_name) VALUES ($1, $2) RETURNING id",
+    )
+    .bind(&tenant_slug)
+    .bind(request.tenant_name.trim())
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(id) => id,
+        Err(db_error) => {
+            tracing::error!(%db_error, "initial tenant creation failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "initial setup could not be completed");
+        }
+    };
+
+    let user_id: uuid::Uuid = match sqlx::query_scalar(
+        "INSERT INTO users (email, email_normalized, password_hash, display_name) \
+         VALUES ($1, $2, $3, $4) RETURNING id",
+    )
+    .bind(email)
+    .bind(&email_normalized)
+    .bind(password_hash)
+    .bind(request.display_name.trim())
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(id) => id,
+        Err(db_error) => {
+            tracing::error!(%db_error, "initial owner creation failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "initial setup could not be completed");
+        }
+    };
+
+    let business_id: uuid::Uuid = match sqlx::query_scalar(
+        "INSERT INTO businesses (tenant_id, legal_name) VALUES ($1, $2) RETURNING id",
+    )
+    .bind(tenant_id)
+    .bind(request.legal_business_name.trim())
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(id) => id,
+        Err(db_error) => {
+            tracing::error!(%db_error, "initial business creation failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "initial setup could not be completed");
+        }
+    };
+
+    let membership_id: uuid::Uuid = match sqlx::query_scalar(
+        "INSERT INTO tenant_memberships (tenant_id, user_id) VALUES ($1, $2) RETURNING id",
+    )
+    .bind(tenant_id)
+    .bind(user_id)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(id) => id,
+        Err(db_error) => {
+            tracing::error!(%db_error, "initial owner membership creation failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "initial setup could not be completed");
+        }
+    };
+
+    let role_id: uuid::Uuid = match sqlx::query_scalar(
+        "INSERT INTO roles (tenant_id, role_key, display_name, is_system) \
+         VALUES ($1, 'owner', 'Owner', TRUE) RETURNING id",
+    )
+    .bind(tenant_id)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(id) => id,
+        Err(db_error) => {
+            tracing::error!(%db_error, "initial owner role creation failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "initial setup could not be completed");
+        }
+    };
+
+    let role_grants = sqlx::query(
+        "INSERT INTO role_permissions (tenant_id, role_id, permission_id) \
+         SELECT $1, $2, id FROM permissions",
+    )
+    .bind(tenant_id)
+    .bind(role_id)
+    .execute(&mut *tx)
+    .await;
+
+    if let Err(db_error) = role_grants {
+        tracing::error!(%db_error, "initial owner permissions could not be assigned");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "initial setup could not be completed");
+    }
+
+    if let Err(db_error) = sqlx::query(
+        "INSERT INTO membership_roles (tenant_id, membership_id, role_id) VALUES ($1, $2, $3)",
+    )
+    .bind(tenant_id)
+    .bind(membership_id)
+    .bind(role_id)
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(%db_error, "initial owner role assignment failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "initial setup could not be completed");
+    }
+
+    if let Err(db_error) = sqlx::query(
+        "INSERT INTO business_locations (tenant_id, business_id, name, location_code) \
+         VALUES ($1, $2, 'Main location', 'MAIN')",
+    )
+    .bind(tenant_id)
+    .bind(business_id)
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(%db_error, "initial business location creation failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "initial setup could not be completed");
+    }
+
+    if let Err(db_error) = sqlx::query(
+        "INSERT INTO audit_events (tenant_id, actor_user_id, event_type, entity_type, entity_id) \
+         VALUES ($1, $2, 'installation.initialised', 'tenant', $1)",
+    )
+    .bind(tenant_id)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(%db_error, "initial setup audit event could not be recorded");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "initial setup could not be completed");
+    }
+
+    let mut token_bytes = [0_u8; 32];
+    OsRng.fill_bytes(&mut token_bytes);
+    let token = hex::encode(token_bytes);
+
+    if let Err(db_error) = sqlx::query(
+        "INSERT INTO user_sessions (user_id, token_hash, expires_at) \
+         VALUES ($1, $2, now() + ($3 * interval '1 second'))",
+    )
+    .bind(user_id)
+    .bind(token_hash(&token))
+    .bind(SESSION_SECONDS as f64)
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(%db_error, "initial owner session creation failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "initial setup could not be completed");
+    }
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "initial setup transaction commit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "initial setup could not be completed");
+    }
+
+    let mut response = Json(UserResponse {
+        id: user_id.to_string(),
+        email: email.to_string(),
+        display_name: request.display_name.trim().to_string(),
+    })
+    .into_response();
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        session_cookie(&token, state.cookie_secure, SESSION_SECONDS),
+    );
+    response
+}
