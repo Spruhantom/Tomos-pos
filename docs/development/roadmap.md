@@ -24,8 +24,10 @@
 - [x] Per-account login throttling with persistent PostgreSQL counters.
 - [x] Exact-origin checks for state-changing authentication requests.
 - [ ] MFA and broader CSRF protections for future state-changing API routes.
-- [ ] Role/permission enforcement middleware.
-- [ ] Transaction-scoped tenant context for authenticated API requests and full cross-tenant endpoint tests.
+- [x] Tenant membership validation middleware and tenant-context endpoint.
+- [x] Reusable role/permission enforcement middleware (route adoption remains pending).
+- [x] Transaction helper sets authenticated user and tenant context for RLS-protected queries.
+- [ ] Apply tenant transactions to all business endpoints and add full cross-tenant endpoint tests.
 - [ ] Append-only audit service and tests.
 
 ## M3 — Web shell and branding
