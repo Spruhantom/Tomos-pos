@@ -326,6 +326,15 @@ pub async fn initial_setup(
         }
     };
 
+    if let Err(db_error) = sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
+        .bind(tenant_id.to_string())
+        .execute(&mut *tx)
+        .await
+    {
+        tracing::error!(%db_error, "initial tenant context could not be established");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "initial setup could not be completed");
+    }
+
     let user_id: uuid::Uuid = match sqlx::query_scalar(
         "INSERT INTO users (email, email_normalized, password_hash, display_name) \
          VALUES ($1, $2, $3, $4) RETURNING id",
