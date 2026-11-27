@@ -84,11 +84,15 @@ fn token_hash(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
 }
 
-fn origin_is_allowed(headers: &HeaderMap, state: &AuthState) -> bool {
+fn origin_matches(headers: &HeaderMap, allowed_origin: &str) -> bool {
     headers
         .get(header::ORIGIN)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|origin| origin == state.allowed_origin)
+        .is_some_and(|origin| origin == allowed_origin)
+}
+
+fn origin_is_allowed(headers: &HeaderMap, state: &AuthState) -> bool {
+    origin_matches(headers, &state.allowed_origin)
 }
 
 async fn login_is_rate_limited(state: &AuthState, email: &str) -> Result<bool, sqlx::Error> {
@@ -284,7 +288,26 @@ pub async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response 
 
 #[cfg(test)]
 mod tests {
-    use super::{hash_password, verify_password};
+    use super::{hash_password, origin_matches, verify_password};
+    use axum::http::{header, HeaderMap, HeaderValue};
+
+    #[test]
+    fn state_changing_requests_require_the_exact_configured_origin() {
+        let mut headers = HeaderMap::new();
+        assert!(!origin_matches(&headers, "https://pos.example.com"));
+
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("https://evil.example"),
+        );
+        assert!(!origin_matches(&headers, "https://pos.example.com"));
+
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("https://pos.example.com"),
+        );
+        assert!(origin_matches(&headers, "https://pos.example.com"));
+    }
 
     #[test]
     fn password_hash_verifies_only_the_original_password() {
