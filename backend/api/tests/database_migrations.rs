@@ -25,6 +25,7 @@ async fn migrations_create_identity_schema_and_tenant_policies() {
         "membership_roles",
         "user_sessions",
         "audit_events",
+        "auth_login_limits",
     ] {
         let exists: bool =
             sqlx::query_scalar("SELECT to_regclass(format('public.%I', $1)) IS NOT NULL")
