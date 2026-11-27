@@ -57,7 +57,7 @@ Do not expose this API to the public internet or use it for live business data u
 
 ## Tenant selection and authorisation
 
-`GET /api/v1/tenant/context` requires the session cookie and an `X-Tenant-ID` header. The API validates that the session belongs to an active user and that the user has an active membership in the requested tenant. The tenant identifier is only a selector; it never grants access by itself.
+`GET /api/v1/tenant/context` requires the session cookie and an `X-Tenant-ID` header. The API validates that the session belongs to an active user, that the user has an active membership in the requested tenant, and that the membership has the `business.read` permission. The tenant identifier is only a selector; it never grants access by itself.
 
 The tenant middleware places a server-validated `AuthContext` into the request. Business handlers must use `begin_tenant_transaction` with that context so both `app.user_id` and `app.tenant_id` are set transaction-locally before querying RLS-protected tables. Do not use a plain pool query for tenant-owned records.
 
