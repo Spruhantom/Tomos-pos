@@ -1,9 +1,6 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    routing::get,
-    Json, Router,
-};
+mod auth;
+
+use axum::{extract::State, http::StatusCode, routing::{get, post}, Json, Router};
 use serde::Serialize;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{env, net::SocketAddr, time::Duration};
@@ -73,11 +70,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("database connected and migrations applied");
 
-    let state = AppState { db };
+    let auth_state = auth::AuthState {
+        db: db.clone(),
+        cookie_secure: env::var("COOKIE_SECURE")
+            .map(|value| value.eq_ignore_ascii_case("true"))
+            .unwrap_or(true),
+    };
+
     let app = Router::new()
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
-        .with_state(state);
+        .route("/api/v1/auth/login", post(auth::login))
+        .route("/api/v1/auth/logout", post(auth::logout))
+        .route("/api/v1/auth/me", get(auth::me))
+        .with_state(auth_state);
 
     let host = env::var("API_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = env::var("API_PORT")
