@@ -223,8 +223,8 @@ async fn audit_events_reject_update_delete_and_truncate() {
         .expect("tenant context should be set");
 
     let event_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO audit_events (tenant_id, event_type, entity_type) \\
-         VALUES ($1, 'test.created', 'test') RETURNING id",
+        r#"INSERT INTO audit_events (tenant_id, event_type, entity_type)
+           VALUES ($1, 'test.created', 'test') RETURNING id"#,
     )
     .bind(tenant_id)
     .fetch_one(&mut *tx)
