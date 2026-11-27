@@ -21,6 +21,12 @@ Example request:
 
 Password length is currently limited to 12–1024 characters. Tenant slugs are lowercase letters, digits and hyphens, 3–48 characters. This is an initial-installation bootstrap, not an open registration endpoint.
 
+## Browser request protection
+
+State-changing authentication requests (`POST /setup`, `/login` and `/logout`) must include an `Origin` header that exactly matches the configured `APP_ORIGIN`. Requests with missing or mismatched origins are rejected. Set `APP_ORIGIN` to the public web application's origin (scheme and host, with a port only when non-default). This is an additional CSRF defence alongside `SameSite=Lax`; it is not a replacement for a complete CSRF strategy for future API routes.
+
+Login attempts are rate-limited per normalized email identity: the tenth attempt within a 15-minute window blocks further attempts for 15 minutes. The limiter stores a SHA-256 digest of the normalized email rather than the address itself.
+
 ## Login
 
 `POST /login` accepts `email` and `password`. Password hashes use Argon2id. On success, the API creates a cryptographically random opaque session token, stores only its SHA-256 digest, and sends the token in an HttpOnly, SameSite=Lax cookie. The session expires after 12 hours.
