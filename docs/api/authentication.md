@@ -45,7 +45,7 @@ Set `COOKIE_SECURE=true` whenever the application is served over HTTPS. The samp
 
 ## Current limitations — not production ready
 
-- Staff invitations and account management after initial setup are not implemented yet.
+- Staff account administration and role-assignment endpoints are not implemented yet.
 - CSRF/origin validation currently covers authentication state changes; all future cookie-authenticated mutation routes must apply the same origin validation or a stronger CSRF token strategy.
 - MFA, password reset, email verification and session/device management are outstanding.
 - Tenant-scoped authorisation middleware is implemented for the tenant context endpoint; all future business routes still need explicit permission middleware and tenant-scoped transactions.
