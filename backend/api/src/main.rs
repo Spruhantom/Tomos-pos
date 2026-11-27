@@ -1,56 +1,94 @@
-use axum::{routing::get, Json, Router};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    routing::get,
+    Json, Router,
+};
 use serde::Serialize;
-use std::{env, net::SocketAddr};
+use sqlx::{postgres::PgPoolOptions, PgPool};
+use std::{env, net::SocketAddr, time::Duration};
 use tracing_subscriber::EnvFilter;
+
+#[derive(Clone)]
+struct AppState {
+    db: PgPool,
+}
 
 #[derive(Serialize)]
 struct HealthResponse {
     status: &'static str,
     service: &'static str,
+    database: &'static str,
 }
 
 async fn live() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
         service: "tomos-pos-api",
+        database: "not_checked",
     })
 }
 
-async fn ready() -> Json<HealthResponse> {
-    // Database connectivity will be added with the SQLx persistence milestone.
-    Json(HealthResponse {
-        status: "starting",
+async fn ready(
+    State(state): State<AppState>,
+) -> Result<Json<HealthResponse>, StatusCode> {
+    sqlx::query("SELECT 1")
+        .execute(&state.db)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "database readiness check failed");
+            StatusCode::SERVICE_UNAVAILABLE
+        })?;
+
+    Ok(Json(HealthResponse {
+        status: "ok",
         service: "tomos-pos-api",
-    })
+        database: "ok",
+    }))
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenvy::dotenv().ok();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
 
+    let database_url = env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be configured before starting the API");
+
+    let db = PgPoolOptions::new()
+        .max_connections(10)
+        .min_connections(1)
+        .acquire_timeout(Duration::from_secs(5))
+        .connect(&database_url)
+        .await?;
+
+    sqlx::migrate!("../../database/migrations")
+        .run(&db)
+        .await?;
+
+    tracing::info!("database connected and migrations applied");
+
+    let state = AppState { db };
     let app = Router::new()
         .route("/health/live", get(live))
-        .route("/health/ready", get(ready));
+        .route("/health/ready", get(ready))
+        .with_state(state);
 
     let host = env::var("API_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = env::var("API_PORT")
         .ok()
         .and_then(|value| value.parse::<u16>().ok())
         .unwrap_or(8080);
-    let address: SocketAddr = format!("{host}:{port}")
-        .parse()
-        .expect("API_HOST and API_PORT must form a valid socket address");
+    let address: SocketAddr = format!("{host}:{port}").parse()?;
 
-    let listener = tokio::net::TcpListener::bind(address)
-        .await
-        .expect("failed to bind API listener");
-
+    let listener = tokio::net::TcpListener::bind(address).await?;
     tracing::info!(%address, "TomOS POS API listening");
-    axum::serve(listener, app)
-        .await
-        .expect("API server failed");
+
+    axum::serve(listener, app).await?;
+    Ok(())
 }
