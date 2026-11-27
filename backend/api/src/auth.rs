@@ -354,9 +354,9 @@ pub async fn require_tenant(
         Err(db_error) => {
             tracing::error!(%db_error, "tenant session lookup failed");
             return error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "tenant access could not be checked",
-        );
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "tenant access could not be checked",
+            );
         }
     };
 
@@ -366,7 +366,10 @@ pub async fn require_tenant(
         .await
     {
         tracing::error!(%db_error, "tenant user context setup failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "tenant access could not be checked");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "tenant access could not be checked",
+        );
     }
 
     let membership_id: uuid::Uuid = match sqlx::query_scalar(
@@ -462,7 +465,10 @@ pub async fn require_permission(
         Ok(permitted) => permitted,
         Err(db_error) => {
             tracing::error!(%db_error, "permission lookup failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "permission could not be checked");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "permission could not be checked",
+            );
         }
     };
 
