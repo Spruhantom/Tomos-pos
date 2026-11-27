@@ -1,8 +1,9 @@
 mod auth;
 
 use axum::{
-    extract::State,
+    extract::{Extension, State},
     http::StatusCode,
+    middleware::from_fn_with_state,
     routing::{get, post},
     Json, Router,
 };
@@ -40,6 +41,16 @@ async fn ready(State(state): State<auth::AuthState>) -> Result<Json<HealthRespon
         service: "tomos-pos-api",
         database: "ok",
     }))
+}
+
+async fn tenant_context(
+    Extension(context): Extension<auth::AuthContext>,
+) -> Json<auth::TenantContextResponse> {
+    Json(auth::TenantContextResponse {
+        user_id: context.user_id.to_string(),
+        tenant_id: context.tenant_id.to_string(),
+        membership_id: context.membership_id.to_string(),
+    })
 }
 
 #[tokio::main]
@@ -82,6 +93,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/v1/auth/login", post(auth::login))
         .route("/api/v1/auth/logout", post(auth::logout))
         .route("/api/v1/auth/me", get(auth::me))
+        .route(
+            "/api/v1/tenant/context",
+            get(tenant_context)
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
         .with_state(auth_state);
 
     let host = env::var("API_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
