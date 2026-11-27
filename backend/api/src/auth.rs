@@ -1065,7 +1065,7 @@ pub async fn create_staff_invitation(
         crate::audit::AuditEventType::StaffInvited,
         crate::audit::AuditEntityType::Invitation,
         Some(invitation_id),
-        serde_json::json!({ "email": email_normalized, "role": "staff" }),
+        serde_json::json!({ "email": email_normalized.clone(), "role": "staff" }),
     )
     .await
     {
