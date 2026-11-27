@@ -143,9 +143,9 @@ pub async fn login(State(state): State<AuthState>, Json(request): Json<LoginRequ
     {
         tracing::error!(%db_error, "session creation failed");
         return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "login could not be completed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "login could not be completed",
+        );
     }
 
     let mut response = Json(UserResponse {
@@ -273,9 +273,9 @@ pub async fn initial_setup(
         || tenant_slug.ends_with('-')
     {
         return error(
-                StatusCode::BAD_REQUEST,
-                "setup details are invalid; use a 12-character password and a valid tenant slug",
-            );
+            StatusCode::BAD_REQUEST,
+            "setup details are invalid; use a 12-character password and a valid tenant slug",
+        );
     }
 
     let password_hash = match hash_password(&request.password) {
@@ -307,9 +307,9 @@ pub async fn initial_setup(
     {
         tracing::error!(%db_error, "initial setup lock failed");
         return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "initial setup could not be completed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "initial setup could not be completed",
+        );
     }
 
     let existing_users: i64 = match sqlx::query_scalar("SELECT COUNT(*) FROM users")
@@ -328,9 +328,9 @@ pub async fn initial_setup(
 
     if existing_users > 0 {
         return error(
-                StatusCode::CONFLICT,
-                "initial setup has already been completed",
-            );
+            StatusCode::CONFLICT,
+            "initial setup has already been completed",
+        );
     }
 
     let tenant_id: uuid::Uuid = match sqlx::query_scalar(
@@ -358,9 +358,9 @@ pub async fn initial_setup(
     {
         tracing::error!(%db_error, "initial tenant context could not be established");
         return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "initial setup could not be completed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "initial setup could not be completed",
+        );
     }
 
     let user_id: uuid::Uuid = match sqlx::query_scalar(
@@ -450,9 +450,9 @@ pub async fn initial_setup(
     if let Err(db_error) = role_grants {
         tracing::error!(%db_error, "initial owner permissions could not be assigned");
         return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "initial setup could not be completed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "initial setup could not be completed",
+        );
     }
 
     if let Err(db_error) = sqlx::query(
@@ -466,9 +466,9 @@ pub async fn initial_setup(
     {
         tracing::error!(%db_error, "initial owner role assignment failed");
         return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "initial setup could not be completed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "initial setup could not be completed",
+        );
     }
 
     if let Err(db_error) = sqlx::query(
@@ -482,9 +482,9 @@ pub async fn initial_setup(
     {
         tracing::error!(%db_error, "initial business location creation failed");
         return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "initial setup could not be completed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "initial setup could not be completed",
+        );
     }
 
     if let Err(db_error) = sqlx::query(
@@ -498,9 +498,9 @@ pub async fn initial_setup(
     {
         tracing::error!(%db_error, "initial setup audit event could not be recorded");
         return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "initial setup could not be completed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "initial setup could not be completed",
+        );
     }
 
     let mut token_bytes = [0_u8; 32];
@@ -519,17 +519,17 @@ pub async fn initial_setup(
     {
         tracing::error!(%db_error, "initial owner session creation failed");
         return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "initial setup could not be completed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "initial setup could not be completed",
+        );
     }
 
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "initial setup transaction commit failed");
         return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "initial setup could not be completed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "initial setup could not be completed",
+        );
     }
 
     let mut response = Json(UserResponse {
