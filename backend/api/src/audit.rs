@@ -78,7 +78,10 @@ mod tests {
     #[test]
     fn audit_vocabulary_is_stable_and_server_defined() {
         assert_eq!(AuditEventType::BusinessCreated.as_str(), "business.created");
-        assert_eq!(AuditEventType::StaffRoleChanged.as_str(), "staff.role_changed");
+        assert_eq!(
+            AuditEventType::StaffRoleChanged.as_str(),
+            "staff.role_changed"
+        );
         assert_eq!(AuditEntityType::Membership.as_str(), "membership");
     }
 }
