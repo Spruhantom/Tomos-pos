@@ -15,6 +15,7 @@
 - [x] Tenant row-level security policies for core tenant-owned tables.
 - [x] PostgreSQL-backed readiness endpoint.
 - [x] CI PostgreSQL service and migration smoke test.
+- [x] Integration test proving tenant RLS isolation with a non-owner runtime role.
 - [x] Initial installation tenant provisioning and owner assignment.
 - [ ] Ongoing tenant provisioning service and owner/staff invitations.
 - [x] Argon2id password hashing and verification.
@@ -22,7 +23,7 @@
 - [x] Login, logout and current-user session endpoints with hashed opaque session tokens.
 - [ ] Login rate limiting, CSRF/origin protection and MFA.
 - [ ] Role/permission enforcement middleware.
-- [ ] Transaction-scoped tenant context and cross-tenant isolation tests.
+- [ ] Transaction-scoped tenant context for authenticated API requests and full cross-tenant endpoint tests.
 - [ ] Append-only audit service and tests.
 
 ## M3 — Web shell and branding
