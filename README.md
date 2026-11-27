@@ -4,8 +4,8 @@ TomOS POS is a self-hosted, multi-business point-of-sale and business-management
 
 ## Project status
 
-**Stage:** Foundation / pre-alpha  
-**Current milestone:** M1 — repository and development foundation  
+**Stage:** Early development / pre-alpha  
+**Current milestone:** M2 — persistence, identity and tenancy  
 **Default branch:** `main`  
 **Integration branch:** `develop`
 
@@ -48,7 +48,7 @@ Run the API from the repository root:
 cargo run -p tomos-pos-api
 ```
 
-The initial API exposes `GET /health/live` and `GET /health/ready`. Database-backed readiness will be enabled with the persistence milestone.
+The API exposes `GET /health/live`, database-backed `GET /health/ready`, and initial setup/login/logout/current-user routes under `/api/v1/auth`. See [authentication API](docs/api/authentication.md). Authentication and tenant authorization still need additional security controls before production use.
 
 ## Documentation
 
@@ -56,6 +56,8 @@ The initial API exposes `GET /health/live` and `GET /health/ready`. Database-bac
 - [Product specification](docs/product/specification.md)
 - [Development roadmap](docs/development/roadmap.md)
 - [Security and data principles](docs/security/requirements.md)
+- [Authentication API](docs/api/authentication.md)
+- [Database and tenant model](docs/database/tenant-model.md)
 
 ## Important
 
