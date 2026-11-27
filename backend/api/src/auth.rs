@@ -12,7 +12,6 @@ use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
-use std::str::FromStr;
 
 const SESSION_COOKIE: &str = "tomos_pos_session";
 const SESSION_SECONDS: i64 = 12 * 60 * 60;
@@ -76,7 +75,7 @@ fn token_from_headers(headers: &HeaderMap) -> Option<&str> {
         .ok()?
         .split(';')
         .map(str::trim)
-        .find_map(|cookie| cookie.strip_prefix(&format!("{SESSION_COOKIE}=")))
+        .find_map(|cookie| cookie.strip_prefix("tomos_pos_session="))
         .filter(|token| !token.is_empty())
 }
 
@@ -129,14 +128,13 @@ pub async fn login(
     let mut token_bytes = [0_u8; 32];
     OsRng.fill_bytes(&mut token_bytes);
     let token = hex::encode(token_bytes);
-    let digest = token_hash(&token);
 
     if let Err(db_error) = sqlx::query(
         "INSERT INTO user_sessions (user_id, token_hash, expires_at) \
          VALUES ($1, $2, now() + ($3 * interval '1 second'))",
     )
     .bind(user.id)
-    .bind(digest)
+    .bind(token_hash(&token))
     .bind(SESSION_SECONDS as f64)
     .execute(&state.db)
     .await
@@ -227,10 +225,7 @@ mod tests {
         let encoded = hash_password("correct horse battery staple")
             .expect("argon2 should generate a password hash");
 
-        assert!(verify_password(
-            "correct horse battery staple",
-            &encoded
-        ));
+        assert!(verify_password("correct horse battery staple", &encoded));
         assert!(!verify_password("incorrect password", &encoded));
         assert!(!encoded.contains("correct horse"));
     }
