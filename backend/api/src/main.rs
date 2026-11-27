@@ -96,7 +96,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/api/v1/tenant/context",
             get(tenant_context)
-                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "business.read",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(
+                    auth_state.clone(),
+                    auth::require_tenant,
+                )),
         )
         .with_state(auth_state);
 
