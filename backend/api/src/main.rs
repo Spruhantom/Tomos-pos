@@ -2,14 +2,9 @@ mod auth;
 
 use axum::{extract::State, http::StatusCode, routing::{get, post}, Json, Router};
 use serde::Serialize;
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::postgres::PgPoolOptions;
 use std::{env, net::SocketAddr, time::Duration};
 use tracing_subscriber::EnvFilter;
-
-#[derive(Clone)]
-struct AppState {
-    db: PgPool,
-}
 
 #[derive(Serialize)]
 struct HealthResponse {
@@ -27,7 +22,7 @@ async fn live() -> Json<HealthResponse> {
 }
 
 async fn ready(
-    State(state): State<AppState>,
+    State(state): State<auth::AuthState>,
 ) -> Result<Json<HealthResponse>, StatusCode> {
     sqlx::query("SELECT 1")
         .execute(&state.db)
@@ -71,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("database connected and migrations applied");
 
     let auth_state = auth::AuthState {
-        db: db.clone(),
+        db,
         cookie_secure: env::var("COOKIE_SECURE")
             .map(|value| value.eq_ignore_ascii_case("true"))
             .unwrap_or(true),
