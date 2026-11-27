@@ -103,10 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     },
                     auth::require_permission,
                 ))
-                .route_layer(from_fn_with_state(
-                    auth_state.clone(),
-                    auth::require_tenant,
-                )),
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
         )
         .with_state(auth_state);
 
