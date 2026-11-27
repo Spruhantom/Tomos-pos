@@ -26,13 +26,12 @@ async fn migrations_create_identity_schema_and_tenant_policies() {
         "user_sessions",
         "audit_events",
     ] {
-        let exists: bool = sqlx::query_scalar(
-            "SELECT to_regclass(format('public.%I', $1)) IS NOT NULL",
-        )
-        .bind(table)
-        .fetch_one(&pool)
-        .await
-        .expect("table existence query should succeed");
+        let exists: bool =
+            sqlx::query_scalar("SELECT to_regclass(format('public.%I', $1)) IS NOT NULL")
+                .bind(table)
+                .fetch_one(&pool)
+                .await
+                .expect("table existence query should succeed");
 
         assert!(exists, "expected table {table} to exist");
     }
