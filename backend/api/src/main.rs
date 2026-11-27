@@ -1,6 +1,11 @@
 mod auth;
 
-use axum::{extract::State, http::StatusCode, routing::{get, post}, Json, Router};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
 use serde::Serialize;
 use sqlx::postgres::PgPoolOptions;
 use std::{env, net::SocketAddr, time::Duration};
@@ -21,9 +26,7 @@ async fn live() -> Json<HealthResponse> {
     })
 }
 
-async fn ready(
-    State(state): State<auth::AuthState>,
-) -> Result<Json<HealthResponse>, StatusCode> {
+async fn ready(State(state): State<auth::AuthState>) -> Result<Json<HealthResponse>, StatusCode> {
     sqlx::query("SELECT 1")
         .execute(&state.db)
         .await
@@ -49,8 +52,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    let database_url = env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be configured before starting the API");
+    let database_url =
+        env::var("DATABASE_URL").expect("DATABASE_URL must be configured before starting the API");
 
     let db = PgPoolOptions::new()
         .max_connections(10)
@@ -59,9 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .connect(&database_url)
         .await?;
 
-    sqlx::migrate!("../../database/migrations")
-        .run(&db)
-        .await?;
+    sqlx::migrate!("../../database/migrations").run(&db).await?;
 
     tracing::info!("database connected and migrations applied");
 
