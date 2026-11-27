@@ -1,18 +1,25 @@
 # Development roadmap
 
 ## M1 — Repository and development foundation
-- Monorepo conventions and documentation.
-- Rust workspace and Axum API bootstrap.
-- Local PostgreSQL Compose service.
-- CI for formatting, linting and tests.
-- Environment and secret-handling conventions.
+- [x] Monorepo conventions and documentation.
+- [x] Rust workspace and Axum API bootstrap.
+- [x] Local PostgreSQL Compose service.
+- [x] CI for formatting, linting and tests.
+- [x] Environment and secret-handling conventions.
 
 ## M2 — Persistence, identity and tenancy
-- SQLx and migration workflow.
-- Tenant, business, location, user and membership models.
-- Password hashing and secure session lifecycle.
-- Role/permission model.
-- Tenant isolation tests and audit events.
+- [x] SQLx PostgreSQL connection pool and migration runner.
+- [x] Tenant, business, location, user and membership schema.
+- [x] Initial roles and permissions schema.
+- [x] Session storage schema.
+- [x] Tenant row-level security policies for core tenant-owned tables.
+- [x] PostgreSQL-backed readiness endpoint.
+- [x] CI PostgreSQL service and migration smoke test.
+- [ ] Tenant provisioning service and owner invitation.
+- [ ] Password hashing and secure login/session lifecycle.
+- [ ] Role/permission enforcement middleware.
+- [ ] Transaction-scoped tenant context and cross-tenant isolation tests.
+- [ ] Append-only audit service and tests.
 
 ## M3 — Web shell and branding
 - Next.js/TypeScript application.
@@ -75,4 +82,4 @@
 
 ## Delivery rule
 
-Do not mark a milestone complete until code, tests, documentation and acceptance checks are present. Do not enable live payment processing or HMRC submissions before the relevant provider and compliance testing is complete.
+Do not mark a milestone complete until code, tests, documentation and acceptance checks are present. A successful compile alone is not completion. Do not enable live payment processing or HMRC submissions before the relevant provider and compliance testing is complete.
