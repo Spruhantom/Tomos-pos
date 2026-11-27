@@ -229,20 +229,44 @@ async fn audit_events_reject_update_delete_and_truncate() {
     .await
     .expect("audit event should be insertable");
 
+    sqlx::query("SAVEPOINT audit_update_attempt")
+        .execute(&mut *tx)
+        .await
+        .expect("update savepoint should be created");
     let update = sqlx::query("UPDATE audit_events SET event_type = 'tampered' WHERE id = $1")
         .bind(event_id)
         .execute(&mut *tx)
         .await;
     assert!(update.is_err(), "audit event updates must be rejected");
+    sqlx::query("ROLLBACK TO SAVEPOINT audit_update_attempt")
+        .execute(&mut *tx)
+        .await
+        .expect("failed update should be rolled back to its savepoint");
 
+    sqlx::query("SAVEPOINT audit_delete_attempt")
+        .execute(&mut *tx)
+        .await
+        .expect("delete savepoint should be created");
     let delete = sqlx::query("DELETE FROM audit_events WHERE id = $1")
         .bind(event_id)
         .execute(&mut *tx)
         .await;
     assert!(delete.is_err(), "audit event deletion must be rejected");
+    sqlx::query("ROLLBACK TO SAVEPOINT audit_delete_attempt")
+        .execute(&mut *tx)
+        .await
+        .expect("failed delete should be rolled back to its savepoint");
 
+    sqlx::query("SAVEPOINT audit_truncate_attempt")
+        .execute(&mut *tx)
+        .await
+        .expect("truncate savepoint should be created");
     let truncate = sqlx::query("TRUNCATE audit_events").execute(&mut *tx).await;
     assert!(truncate.is_err(), "audit ledger truncation must be rejected");
+    sqlx::query("ROLLBACK TO SAVEPOINT audit_truncate_attempt")
+        .execute(&mut *tx)
+        .await
+        .expect("failed truncate should be rolled back to its savepoint");
 
     tx.rollback()
         .await
