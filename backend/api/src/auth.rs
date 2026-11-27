@@ -738,6 +738,40 @@ pub async fn initial_setup(
         }
     };
 
+    let staff_role_id: uuid::Uuid = match sqlx::query_scalar(
+        "INSERT INTO roles (tenant_id, role_key, display_name, is_system) \
+         VALUES ($1, 'staff', 'Staff', FALSE) RETURNING id",
+    )
+    .bind(tenant_id)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(id) => id,
+        Err(db_error) => {
+            tracing::error!(%db_error, "initial staff role creation failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "initial setup could not be completed",
+            );
+        }
+    };
+
+    if let Err(db_error) = sqlx::query(
+        "INSERT INTO role_permissions (tenant_id, role_id, permission_id) \
+         SELECT $1, $2, id FROM permissions WHERE permission_key = 'business.read'",
+    )
+    .bind(tenant_id)
+    .bind(staff_role_id)
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(%db_error, "initial staff permissions could not be assigned");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "initial setup could not be completed",
+        );
+    }
+
     let role_grants = sqlx::query(
         "INSERT INTO role_permissions (tenant_id, role_id, permission_id) \
          SELECT $1, $2, id FROM permissions",
@@ -847,6 +881,482 @@ pub async fn initial_setup(
     response.headers_mut().insert(
         header::SET_COOKIE,
         session_cookie(&token, state.cookie_secure, SESSION_SECONDS),
+    );
+    response
+}
+
+
+#[derive(Deserialize)]
+pub struct CreateStaffInvitationRequest {
+    pub email: String,
+}
+
+#[derive(Serialize)]
+struct CreatedStaffInvitationResponse {
+    id: String,
+    email: String,
+    token: String,
+    expires_in_days: u8,
+    delivery: &'static str,
+}
+
+#[derive(Deserialize)]
+pub struct AcceptStaffInvitationRequest {
+    pub token: String,
+    pub password: String,
+    pub display_name: String,
+}
+
+#[derive(FromRow)]
+struct StaffInvitationRow {
+    id: uuid::Uuid,
+    tenant_id: uuid::Uuid,
+    email_normalized: String,
+    role_id: uuid::Uuid,
+}
+
+/// Create a seven-day, single-use invitation for the tenant's least-privileged
+/// built-in Staff role. The raw token is returned once for secure delivery.
+pub async fn create_staff_invitation(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    headers: HeaderMap,
+    Json(request): Json<CreateStaffInvitationRequest>,
+) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+
+    let email_normalized = request.email.trim().to_lowercase();
+    if email_normalized.len() > 320
+        || !email_normalized.contains('@')
+        || email_normalized.chars().any(char::is_whitespace)
+    {
+        return error(StatusCode::BAD_REQUEST, "a valid email address is required");
+    }
+
+    let mut token_bytes = [0_u8; 32];
+    OsRng.fill_bytes(&mut token_bytes);
+    let token = hex::encode(token_bytes);
+    let digest = token_hash(&token);
+
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff invitation transaction failed to start");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be created",
+            );
+        }
+    };
+
+    let lock_key = format!("{}:{}", context.tenant_id, email_normalized);
+    if let Err(db_error) = sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(&lock_key)
+        .execute(&mut *tx)
+        .await
+    {
+        tracing::error!(%db_error, "staff invitation lock failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitation could not be created",
+        );
+    }
+
+    let existing_user: bool = match sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE email_normalized = $1)",
+    )
+    .bind(&email_normalized)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(value) => value,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff invitation user check failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be created",
+            );
+        }
+    };
+    if existing_user {
+        return error(
+            StatusCode::CONFLICT,
+            "this email already has an account; account linking is not available yet",
+        );
+    }
+
+    let pending_invitation: bool = match sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM staff_invitations \
+         WHERE tenant_id = $1 AND email_normalized = $2 \
+           AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now())",
+    )
+    .bind(context.tenant_id)
+    .bind(&email_normalized)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(value) => value,
+        Err(db_error) => {
+            tracing::error!(%db_error, "pending invitation lookup failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be created",
+            );
+        }
+    };
+    if pending_invitation {
+        return error(
+            StatusCode::CONFLICT,
+            "an active invitation already exists for this email",
+        );
+    }
+
+    let role_id: uuid::Uuid = match sqlx::query_scalar(
+        "SELECT id FROM roles WHERE tenant_id = $1 AND role_key = 'staff' AND is_system = FALSE",
+    )
+    .bind(context.tenant_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(id)) => id,
+        Ok(None) => {
+            return error(
+                StatusCode::CONFLICT,
+                "the default staff role is not configured for this tenant",
+            )
+        }
+        Err(db_error) => {
+            tracing::error!(%db_error, "default staff role lookup failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be created",
+            );
+        }
+    };
+
+    let invitation_id: uuid::Uuid = match sqlx::query_scalar(
+        "INSERT INTO staff_invitations \
+         (tenant_id, email_normalized, role_id, invited_by, token_hash, expires_at) \
+         VALUES ($1, $2, $3, $4, $5, now() + interval '7 days') RETURNING id",
+    )
+    .bind(context.tenant_id)
+    .bind(&email_normalized)
+    .bind(role_id)
+    .bind(context.user_id)
+    .bind(digest)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(id) => id,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff invitation insert failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be created",
+            );
+        }
+    };
+
+    if let Err(db_error) = crate::audit::record_event(
+        &mut tx,
+        &context,
+        crate::audit::AuditEventType::StaffInvited,
+        crate::audit::AuditEntityType::Invitation,
+        Some(invitation_id),
+        serde_json::json!({ "email": email_normalized, "role": "staff" }),
+    )
+    .await
+    {
+        tracing::error!(%db_error, "staff invitation audit event failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitation could not be created",
+        );
+    }
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "staff invitation transaction commit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitation could not be created",
+        );
+    }
+
+    Json(CreatedStaffInvitationResponse {
+        id: invitation_id.to_string(),
+        email: email_normalized,
+        token,
+        expires_in_days: 7,
+        delivery: "manual_secure_delivery_required",
+    })
+    .into_response()
+}
+
+/// Accept an invitation for a new account. Existing-account linking and email
+/// delivery are intentionally separate follow-up work, not implicit here.
+pub async fn accept_staff_invitation(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Json(request): Json<AcceptStaffInvitationRequest>,
+) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+
+    let token = request.token.trim();
+    if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return error(StatusCode::BAD_REQUEST, "invitation token is invalid");
+    }
+    if request.password.len() < 12
+        || request.password.len() > 1024
+        || request.display_name.trim().is_empty()
+        || request.display_name.len() > 120
+    {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "a 12-character password and valid display name are required",
+        );
+    }
+
+    let password_hash = match hash_password(&request.password) {
+        Ok(hash) => hash,
+        Err(hash_error) => {
+            tracing::error!(%hash_error, "invited user password hashing failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be accepted",
+            );
+        }
+    };
+
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "invitation acceptance transaction failed to start");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be accepted",
+            );
+        }
+    };
+
+    let digest = token_hash(token);
+    if let Err(db_error) =
+        sqlx::query("SELECT set_config('app.invitation_token_hash', $1, true)")
+            .bind(&digest)
+            .execute(&mut *tx)
+            .await
+    {
+        tracing::error!(%db_error, "invitation token context could not be set");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitation could not be accepted",
+        );
+    }
+
+    let invitation = match sqlx::query_as::<_, StaffInvitationRow>(
+        "SELECT id, tenant_id, email_normalized, role_id FROM staff_invitations \
+         WHERE token_hash = $1 AND expires_at > now() \
+           AND accepted_at IS NULL AND revoked_at IS NULL FOR UPDATE",
+    )
+    .bind(&digest)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(invitation)) => invitation,
+        Ok(None) => {
+            return error(
+                StatusCode::GONE,
+                "invitation is invalid, expired or already used",
+            )
+        }
+        Err(db_error) => {
+            tracing::error!(%db_error, "invitation token lookup failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be accepted",
+            );
+        }
+    };
+
+    if let Err(db_error) = sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
+        .bind(invitation.tenant_id.to_string())
+        .execute(&mut *tx)
+        .await
+    {
+        tracing::error!(%db_error, "invitation tenant context could not be set");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitation could not be accepted",
+        );
+    }
+
+    let existing_user: bool = match sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE email_normalized = $1)",
+    )
+    .bind(&invitation.email_normalized)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(value) => value,
+        Err(db_error) => {
+            tracing::error!(%db_error, "invitation account check failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be accepted",
+            );
+        }
+    };
+    if existing_user {
+        return error(
+            StatusCode::CONFLICT,
+            "an account already exists for this email; sign-in invitation linking is not available yet",
+        );
+    }
+
+    let user_id: uuid::Uuid = match sqlx::query_scalar(
+        "INSERT INTO users (email, email_normalized, password_hash, display_name) \
+         VALUES ($1, $1, $2, $3) RETURNING id",
+    )
+    .bind(&invitation.email_normalized)
+    .bind(password_hash)
+    .bind(request.display_name.trim())
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(id) => id,
+        Err(db_error) => {
+            tracing::error!(%db_error, "invited user account creation failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be accepted",
+            );
+        }
+    };
+
+    let membership_id: uuid::Uuid = match sqlx::query_scalar(
+        "INSERT INTO tenant_memberships (tenant_id, user_id, status) \
+         VALUES ($1, $2, 'active') RETURNING id",
+    )
+    .bind(invitation.tenant_id)
+    .bind(user_id)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(id) => id,
+        Err(db_error) => {
+            tracing::error!(%db_error, "invited user membership creation failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be accepted",
+            );
+        }
+    };
+
+    if let Err(db_error) = sqlx::query(
+        "INSERT INTO membership_roles (tenant_id, membership_id, role_id) VALUES ($1, $2, $3)",
+    )
+    .bind(invitation.tenant_id)
+    .bind(membership_id)
+    .bind(invitation.role_id)
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(%db_error, "invited user role assignment failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitation could not be accepted",
+        );
+    }
+
+    if let Err(db_error) = sqlx::query(
+        "UPDATE staff_invitations SET accepted_at = now(), membership_id = $2 WHERE id = $1",
+    )
+    .bind(invitation.id)
+    .bind(membership_id)
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(%db_error, "invitation could not be marked accepted");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitation could not be accepted",
+        );
+    }
+
+    if let Err(db_error) = sqlx::query("SELECT set_config('app.user_id', $1, true)")
+        .bind(user_id.to_string())
+        .execute(&mut *tx)
+        .await
+    {
+        tracing::error!(%db_error, "invited user context could not be set");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitation could not be accepted",
+        );
+    }
+
+    let audit_context = AuthContext {
+        user_id,
+        tenant_id: invitation.tenant_id,
+        membership_id,
+    };
+    if let Err(db_error) = crate::audit::record_event(
+        &mut tx,
+        &audit_context,
+        crate::audit::AuditEventType::StaffInvitationAccepted,
+        crate::audit::AuditEntityType::Membership,
+        Some(membership_id),
+        serde_json::json!({ "invitation_id": invitation.id }),
+    )
+    .await
+    {
+        tracing::error!(%db_error, "invitation acceptance audit event failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitation could not be accepted",
+        );
+    }
+
+    let mut session_bytes = [0_u8; 32];
+    OsRng.fill_bytes(&mut session_bytes);
+    let session_token = hex::encode(session_bytes);
+    if let Err(db_error) = sqlx::query(
+        "INSERT INTO user_sessions (user_id, token_hash, expires_at) \
+         VALUES ($1, $2, now() + ($3 * interval '1 second'))",
+    )
+    .bind(user_id)
+    .bind(token_hash(&session_token))
+    .bind(SESSION_SECONDS as f64)
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(%db_error, "invited user session creation failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitation could not be accepted",
+        );
+    }
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "invitation acceptance commit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitation could not be accepted",
+        );
+    }
+
+    let mut response = Json(UserResponse {
+        id: user_id.to_string(),
+        email: invitation.email_normalized,
+        display_name: request.display_name.trim().to_string(),
+    })
+    .into_response();
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        session_cookie(&session_token, state.cookie_secure, SESSION_SECONDS),
     );
     response
 }
