@@ -53,3 +53,12 @@ Set `COOKIE_SECURE=true` whenever the application is served over HTTPS. The samp
 - The API currently has no web frontend.
 
 Do not expose this API to the public internet or use it for live business data until the outstanding security controls and integration tests are complete.
+
+
+## Tenant selection and authorisation
+
+`GET /api/v1/tenant/context` requires the session cookie and an `X-Tenant-ID` header. The API validates that the session belongs to an active user and that the user has an active membership in the requested tenant. The tenant identifier is only a selector; it never grants access by itself.
+
+The tenant middleware places a server-validated `AuthContext` into the request. Business handlers must use `begin_tenant_transaction` with that context so both `app.user_id` and `app.tenant_id` are set transaction-locally before querying RLS-protected tables. Do not use a plain pool query for tenant-owned records.
+
+The reusable permission middleware checks the permission key against the authenticated membership's assigned roles. Apply it to each protected route with the exact permission required (for example `business.manage` or `reports.read`). No business-management routes are exposed yet; the middleware is the foundation for those routes.
