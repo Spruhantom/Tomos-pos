@@ -885,7 +885,6 @@ pub async fn initial_setup(
     response
 }
 
-
 #[derive(Deserialize)]
 pub struct CreateStaffInvitationRequest {
     pub email: String,
@@ -964,13 +963,12 @@ pub async fn create_staff_invitation(
         );
     }
 
-    let existing_user: bool = match sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM users WHERE email_normalized = $1)",
-    )
-    .bind(&email_normalized)
-    .fetch_one(&mut *tx)
-    .await
-    {
+    let existing_user: bool =
+        match sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE email_normalized = $1)")
+            .bind(&email_normalized)
+            .fetch_one(&mut *tx)
+            .await
+        {
         Ok(value) => value,
         Err(db_error) => {
             tracing::error!(%db_error, "staff invitation user check failed");
@@ -1143,11 +1141,10 @@ pub async fn accept_staff_invitation(
     };
 
     let digest = token_hash(token);
-    if let Err(db_error) =
-        sqlx::query("SELECT set_config('app.invitation_token_hash', $1, true)")
-            .bind(&digest)
-            .execute(&mut *tx)
-            .await
+    if let Err(db_error) = sqlx::query("SELECT set_config('app.invitation_token_hash', $1, true)")
+        .bind(&digest)
+        .execute(&mut *tx)
+        .await
     {
         tracing::error!(%db_error, "invitation token context could not be set");
         return error(
@@ -1193,13 +1190,12 @@ pub async fn accept_staff_invitation(
         );
     }
 
-    let existing_user: bool = match sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM users WHERE email_normalized = $1)",
-    )
-    .bind(&invitation.email_normalized)
-    .fetch_one(&mut *tx)
-    .await
-    {
+    let existing_user: bool =
+        match sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE email_normalized = $1)")
+            .bind(&invitation.email_normalized)
+            .fetch_one(&mut *tx)
+            .await
+        {
         Ok(value) => value,
         Err(db_error) => {
             tracing::error!(%db_error, "invitation account check failed");
