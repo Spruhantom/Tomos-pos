@@ -1,4 +1,16 @@
 -- Single-use, time-limited staff invitations. The raw bearer token is never stored.
+-- Ensure tenants created before this migration also receive the fixed least-privileged role.
+INSERT INTO roles (tenant_id, role_key, display_name, is_system)
+SELECT id, 'staff', 'Staff', FALSE FROM tenants
+ON CONFLICT (tenant_id, role_key) DO NOTHING;
+
+INSERT INTO role_permissions (tenant_id, role_id, permission_id)
+SELECT r.tenant_id, r.id, p.id
+FROM roles r
+JOIN permissions p ON p.permission_key = 'business.read'
+WHERE r.tenant_id IS NOT NULL AND r.role_key = 'staff'
+ON CONFLICT DO NOTHING;
+
 CREATE TABLE staff_invitations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
