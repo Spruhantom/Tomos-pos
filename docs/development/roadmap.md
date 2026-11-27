@@ -15,8 +15,12 @@
 - [x] Tenant row-level security policies for core tenant-owned tables.
 - [x] PostgreSQL-backed readiness endpoint.
 - [x] CI PostgreSQL service and migration smoke test.
-- [ ] Tenant provisioning service and owner invitation.
-- [ ] Password hashing and secure login/session lifecycle.
+- [x] Initial installation tenant provisioning and owner assignment.
+- [ ] Ongoing tenant provisioning service and owner/staff invitations.
+- [x] Argon2id password hashing and verification.
+- [x] One-time first-run owner, tenant and business provisioning.
+- [x] Login, logout and current-user session endpoints with hashed opaque session tokens.
+- [ ] Login rate limiting, CSRF/origin protection and MFA.
 - [ ] Role/permission enforcement middleware.
 - [ ] Transaction-scoped tenant context and cross-tenant isolation tests.
 - [ ] Append-only audit service and tests.
