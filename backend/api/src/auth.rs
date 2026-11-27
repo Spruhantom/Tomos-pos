@@ -20,6 +20,7 @@ const SESSION_SECONDS: i64 = 12 * 60 * 60;
 pub struct AuthState {
     pub db: PgPool,
     pub cookie_secure: bool,
+    pub allowed_origin: String,
 }
 
 #[derive(Deserialize)]
@@ -83,6 +84,37 @@ fn token_hash(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
 }
 
+fn origin_is_allowed(headers: &HeaderMap, state: &AuthState) -> bool {
+    headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|origin| origin == state.allowed_origin)
+}
+
+async fn login_is_rate_limited(state: &AuthState, email: &str) -> Result<bool, sqlx::Error> {
+    let identifier_hash = hex::encode(Sha256::digest(email.as_bytes()));
+    sqlx::query_scalar(
+        "INSERT INTO auth_login_limits (identifier_hash, attempt_count) VALUES ($1, 1) \
+         ON CONFLICT (identifier_hash) DO UPDATE SET \
+           window_started_at = CASE \
+             WHEN auth_login_limits.window_started_at <= now() - interval '15 minutes' \
+             THEN now() ELSE auth_login_limits.window_started_at END, \
+           attempt_count = CASE \
+             WHEN auth_login_limits.window_started_at <= now() - interval '15 minutes' \
+             THEN 1 ELSE auth_login_limits.attempt_count + 1 END, \
+           blocked_until = CASE \
+             WHEN auth_login_limits.blocked_until > now() THEN auth_login_limits.blocked_until \
+             WHEN auth_login_limits.window_started_at <= now() - interval '15 minutes' THEN NULL \
+             WHEN auth_login_limits.attempt_count + 1 >= 10 THEN now() + interval '15 minutes' \
+             ELSE NULL END, \
+           updated_at = now() \
+         RETURNING blocked_until IS NOT NULL AND blocked_until > now()",
+    )
+    .bind(identifier_hash)
+    .fetch_one(&state.db)
+    .await
+}
+
 pub fn hash_password(password: &str) -> Result<String, argon2::password_hash::Error> {
     let salt = SaltString::generate(&mut OsRng);
     Argon2::default()
@@ -98,12 +130,29 @@ fn verify_password(password: &str, encoded_hash: &str) -> bool {
     })
 }
 
-pub async fn login(State(state): State<AuthState>, Json(request): Json<LoginRequest>) -> Response {
+pub async fn login(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Json(request): Json<LoginRequest>,
+) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+
     if request.email.len() > 320 || request.password.len() > 1024 {
         return error(StatusCode::BAD_REQUEST, "invalid credentials");
     }
 
     let email_normalized = request.email.trim().to_lowercase();
+    match login_is_rate_limited(&state, &email_normalized).await {
+        Ok(true) => return error(StatusCode::TOO_MANY_REQUESTS, "too many login attempts; try again later"),
+        Ok(false) => {}
+        Err(db_error) => {
+            tracing::error!(%db_error, "login rate-limit check failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "login could not be completed");
+        }
+    }
+
     let user = match sqlx::query_as::<_, LoginRow>(
         "SELECT id, email, display_name, password_hash, is_active \
          FROM users WHERE email_normalized = $1",
@@ -125,6 +174,14 @@ pub async fn login(State(state): State<AuthState>, Json(request): Json<LoginRequ
 
     if !user.is_active || !verify_password(&request.password, &user.password_hash) {
         return error(StatusCode::UNAUTHORIZED, "email or password is incorrect");
+    }
+
+    if let Err(db_error) = sqlx::query("DELETE FROM auth_login_limits WHERE identifier_hash = $1")
+        .bind(hex::encode(Sha256::digest(email_normalized.as_bytes())))
+        .execute(&state.db)
+        .await
+    {
+        tracing::warn!(%db_error, "successful login rate-limit record cleanup failed");
     }
 
     let mut token_bytes = [0_u8; 32];
@@ -162,6 +219,10 @@ pub async fn login(State(state): State<AuthState>, Json(request): Json<LoginRequ
 }
 
 pub async fn logout(State(state): State<AuthState>, headers: HeaderMap) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+
     if let Some(token) = token_from_headers(&headers) {
         if let Err(db_error) = sqlx::query(
             "UPDATE user_sessions SET revoked_at = now() \
@@ -248,8 +309,13 @@ pub struct InitialSetupRequest {
 
 pub async fn initial_setup(
     State(state): State<AuthState>,
+    headers: HeaderMap,
     Json(request): Json<InitialSetupRequest>,
 ) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+
     let email = request.email.trim();
     let email_normalized = email.to_lowercase();
     let tenant_slug = request.tenant_slug.trim().to_lowercase();
