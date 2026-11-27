@@ -28,7 +28,7 @@
 - [x] Reusable role/permission enforcement middleware (route adoption remains pending).
 - [x] Transaction helper sets authenticated user and tenant context for RLS-protected queries.
 - [ ] Apply tenant transactions to all business endpoints and add full cross-tenant endpoint tests.
-- [ ] Append-only audit service and tests.
+- [x] Database-enforced append-only audit ledger (UPDATE, DELETE and TRUNCATE rejected; integration tests).\n- [ ] Typed audit-writing service and event coverage for all business mutations.
 
 ## M3 — Web shell and branding
 - Next.js/TypeScript application.
