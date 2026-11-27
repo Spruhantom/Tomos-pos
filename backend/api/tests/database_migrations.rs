@@ -123,9 +123,7 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     .expect("second test user should be created");
 
     for (tenant_id, user_id) in [(tenant_a, user_a), (tenant_b, user_b)] {
-        sqlx::query(
-            "INSERT INTO tenant_memberships (tenant_id, user_id) VALUES ($1, $2)",
-        )
+        sqlx::query("INSERT INTO tenant_memberships (tenant_id, user_id) VALUES ($1, $2)")
         .bind(tenant_id)
         .bind(user_id)
         .execute(&pool)
@@ -142,7 +140,10 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
             .expect("test business should be created");
     }
 
-    let mut tx = pool.begin().await.expect("RLS test transaction should start");
+    let mut tx = pool
+        .begin()
+        .await
+        .expect("RLS test transaction should start");
     sqlx::query("SET LOCAL ROLE tomos_pos_rls_test")
         .execute(&mut *tx)
         .await
@@ -154,11 +155,10 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         .await
         .expect("authenticated user context should be set");
 
-    let own_memberships: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM tenant_memberships")
-            .fetch_one(&mut *tx)
-            .await
-            .expect("membership self-lookup should succeed");
+    let own_memberships: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tenant_memberships")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("membership self-lookup should succeed");
     assert_eq!(
         own_memberships, 1,
         "user context must reveal only the authenticated user's memberships"
@@ -168,7 +168,10 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         .fetch_one(&mut *tx)
         .await
         .expect("query without tenant context should succeed");
-    assert_eq!(without_context, 0, "no tenant context must reveal no tenant rows");
+    assert_eq!(
+        without_context, 0,
+        "no tenant context must reveal no tenant rows"
+    );
 
     sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
         .bind(tenant_a.to_string())
@@ -182,6 +185,8 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         .expect("tenant-scoped query should succeed");
     assert_eq!(visible, 1, "tenant A must see only its own business");
 
-    tx.rollback().await.expect("RLS test transaction should roll back");
+    tx.rollback()
+        .await
+        .expect("RLS test transaction should roll back");
     pool.close().await;
 }
