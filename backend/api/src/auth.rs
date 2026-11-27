@@ -390,13 +390,19 @@ pub async fn require_tenant(
         }
         Err(db_error) => {
             tracing::error!(%db_error, "tenant membership lookup failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "tenant access could not be checked");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "tenant access could not be checked",
+            );
         }
     };
 
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "tenant authentication transaction commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "tenant access could not be checked");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "tenant access could not be checked",
+        );
     }
 
     request.extensions_mut().insert(AuthContext {
@@ -474,7 +480,10 @@ pub async fn require_permission(
 
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "permission check transaction commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "permission could not be checked");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "permission could not be checked",
+        );
     }
 
     if !permitted {
