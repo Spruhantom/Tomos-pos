@@ -969,15 +969,15 @@ pub async fn create_staff_invitation(
             .fetch_one(&mut *tx)
             .await
         {
-        Ok(value) => value,
-        Err(db_error) => {
-            tracing::error!(%db_error, "staff invitation user check failed");
-            return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "invitation could not be created",
-            );
-        }
-    };
+            Ok(value) => value,
+            Err(db_error) => {
+                tracing::error!(%db_error, "staff invitation user check failed");
+                return error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "invitation could not be created",
+                );
+            }
+        };
     if existing_user {
         return error(
             StatusCode::CONFLICT,
@@ -1196,15 +1196,15 @@ pub async fn accept_staff_invitation(
             .fetch_one(&mut *tx)
             .await
         {
-        Ok(value) => value,
-        Err(db_error) => {
-            tracing::error!(%db_error, "invitation account check failed");
-            return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "invitation could not be accepted",
-            );
-        }
-    };
+            Ok(value) => value,
+            Err(db_error) => {
+                tracing::error!(%db_error, "invitation account check failed");
+                return error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "invitation could not be accepted",
+                );
+            }
+        };
     if existing_user {
         return error(
             StatusCode::CONFLICT,
