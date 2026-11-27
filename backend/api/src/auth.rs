@@ -170,7 +170,7 @@ pub async fn login(
         "SELECT id, email, display_name, password_hash, is_active \
          FROM users WHERE email_normalized = $1",
     )
-    .bind(email_normalized)
+    .bind(&email_normalized)
     .fetch_optional(&state.db)
     .await
     {
