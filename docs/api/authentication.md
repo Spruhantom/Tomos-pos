@@ -67,3 +67,12 @@ The reusable permission middleware checks the permission key against the authent
 ## Audit event service
 
 The append-only audit ledger is protected by database triggers that reject row updates, row deletes and table truncation. The API's `audit::record_event` helper accepts only server-defined event and entity enums and writes using the caller's tenant-scoped transaction. Business handlers should call it before committing the transaction so the business change and its audit record succeed or fail together. Event payloads must contain only necessary business metadata; never include passwords, session tokens, payment-card data or other secrets.
+
+
+## Staff invitations
+
+POST /api/v1/staff/invitations requires an authenticated tenant session and the roles.manage permission. It creates a seven-day, single-use invitation for the tenant's built-in least-privileged Staff role. The raw 256-bit bearer token is returned once because email delivery is not integrated yet; the caller must deliver it to the invited address through a secure channel. Only the token digest is stored. Do not log or persist the raw token in browser analytics or support logs.
+
+POST /api/v1/staff/invitations/accept accepts a valid invitation for a new account, requires the exact configured Origin, a password of at least 12 characters and a display name, creates the account and active membership, assigns only the preselected Staff role, records an audit event and creates a session in one transaction. Expired, revoked, invalid and previously used tokens are rejected. Existing-account invitation linking is not implemented and returns a conflict.
+
+The Staff role created during initial setup currently grants only business.read. Role administration, invitation listing/revocation, email delivery, email verification and existing-account linking remain outstanding. Treat invitation tokens like passwords: anyone holding one can claim the invitation.
