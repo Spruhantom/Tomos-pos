@@ -101,6 +101,38 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     .await
     .expect("second test tenant should be created");
 
+    let suffix = uuid::Uuid::new_v4();
+    let user_a: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO users (email, email_normalized, password_hash, display_name) \
+         VALUES ($1, $2, 'test-hash', 'RLS User A') RETURNING id",
+    )
+    .bind(format!("rls-a-{suffix}@example.test"))
+    .bind(format!("rls-a-{suffix}@example.test"))
+    .fetch_one(&pool)
+    .await
+    .expect("first test user should be created");
+
+    let user_b: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO users (email, email_normalized, password_hash, display_name) \
+         VALUES ($1, $2, 'test-hash', 'RLS User B') RETURNING id",
+    )
+    .bind(format!("rls-b-{suffix}@example.test"))
+    .bind(format!("rls-b-{suffix}@example.test"))
+    .fetch_one(&pool)
+    .await
+    .expect("second test user should be created");
+
+    for (tenant_id, user_id) in [(tenant_a, user_a), (tenant_b, user_b)] {
+        sqlx::query(
+            "INSERT INTO tenant_memberships (tenant_id, user_id) VALUES ($1, $2)",
+        )
+        .bind(tenant_id)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .expect("test tenant membership should be created");
+    }
+
     for (tenant_id, legal_name) in [(tenant_a, "Tenant A Ltd"), (tenant_b, "Tenant B Ltd")] {
         sqlx::query("INSERT INTO businesses (tenant_id, legal_name) VALUES ($1, $2)")
             .bind(tenant_id)
@@ -115,6 +147,22 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         .execute(&mut *tx)
         .await
         .expect("test should run as a non-owner application role");
+
+    sqlx::query("SELECT set_config('app.user_id', $1, true)")
+        .bind(user_a.to_string())
+        .execute(&mut *tx)
+        .await
+        .expect("authenticated user context should be set");
+
+    let own_memberships: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM tenant_memberships")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("membership self-lookup should succeed");
+    assert_eq!(
+        own_memberships, 1,
+        "user context must reveal only the authenticated user's memberships"
+    );
 
     let without_context: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM businesses")
         .fetch_one(&mut *tx)
