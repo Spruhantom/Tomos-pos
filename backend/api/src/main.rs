@@ -1,6 +1,6 @@
 mod audit;
 mod auth;
-pub mod sumup;
+pub(crate) mod sumup;
 
 use axum::{
     extract::{DefaultBodyLimit, Extension, State},
