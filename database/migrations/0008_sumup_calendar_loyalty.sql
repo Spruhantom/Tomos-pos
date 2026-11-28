@@ -20,6 +20,17 @@ ON CONFLICT DO NOTHING;
 ALTER TABLE payment_tenders DROP CONSTRAINT IF EXISTS payment_tenders_method_check;
 ALTER TABLE payment_tenders ADD CONSTRAINT payment_tenders_method_check
     CHECK (method IN ('cash', 'card_terminal', 'paypal', 'sumup_terminal'));
+ALTER TABLE payment_tenders DROP CONSTRAINT IF EXISTS payment_tenders_check;
+ALTER TABLE payment_tenders ADD CONSTRAINT payment_tenders_check CHECK (
+    (method = 'cash' AND status = 'captured' AND amount_received_minor IS NOT NULL
+        AND amount_received_minor >= amount_minor
+        AND change_due_minor = amount_received_minor - amount_minor
+        AND captured_at IS NOT NULL)
+    OR
+    (method IN ('card_terminal', 'paypal', 'sumup_terminal') AND amount_received_minor IS NULL
+        AND change_due_minor = 0
+        AND (status <> 'captured' OR captured_at IS NOT NULL))
+);
 
 CREATE TABLE sumup_business_accounts (
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
