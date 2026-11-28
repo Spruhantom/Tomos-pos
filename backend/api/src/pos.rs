@@ -281,7 +281,7 @@ pub async fn open_till(
     .bind(request.location_id)
     .bind(context.user_id)
     .bind(request.opening_float_minor)
-    .bind(currency)
+    .bind(&currency)
     .fetch_one(&mut *tx)
     .await
     {
