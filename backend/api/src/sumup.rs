@@ -283,7 +283,24 @@ pub(crate) async fn webhook(
                 .execute(&mut *tx)
                 .await
                 {
-                    Ok(sale_result) if sale_result.rows_affected() == 1 => {}
+                    Ok(sale_result) if sale_result.rows_affected() == 1 => {
+                        if let Err(error) = sqlx::query(
+                            "INSERT INTO audit_events \
+                             (tenant_id, actor_user_id, event_type, entity_type, entity_id, event_data) \
+                             VALUES ($1, NULL, 'payment.sumup.succeeded', 'sale', \
+                               (SELECT sale_id FROM sumup_payment_attempts WHERE id = $2), \
+                               jsonb_build_object('payment_attempt_id', $2, 'provider_event_id', $3))",
+                        )
+                        .bind(token_record.tenant_id)
+                        .bind(attempt.id)
+                        .bind(&event.id)
+                        .execute(&mut *tx)
+                        .await
+                        {
+                            tracing::error!(%error, attempt_id = %attempt.id, "SumUp success audit event failed");
+                            return StatusCode::SERVICE_UNAVAILABLE;
+                        }
+                    }
                     Ok(_) => {
                         tracing::error!(
                             attempt_id = %attempt.id,
