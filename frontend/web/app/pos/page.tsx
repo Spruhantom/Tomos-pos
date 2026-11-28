@@ -167,6 +167,17 @@ export default function PosPage() {
     finally { setBusy(false); }
   }
 
+  async function connectPayPal() {
+    if (!businessId) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const result = await api<{ action_url: string }>("paypal/connect", {
+        method: "POST", tenantId, body: { business_id: businessId },
+      });
+      window.location.assign(result.action_url);
+    } catch (reason) { setError(messageOf(reason)); setBusy(false); }
+  }
+
   async function recordCashMovement() {
     if (!till) return;
     const amountMinor = poundsToMinor(cashMovementAmount);
@@ -274,6 +285,7 @@ export default function PosPage() {
             <div className="pos-totals"><div><span>VAT included</span><b>{money(taxMinor, selectedBusiness?.currency_code)}</b></div><div className="pos-grand-total"><span>Total</span><b>{money(totalMinor, selectedBusiness?.currency_code)}</b></div></div>
             <div className="pos-payment">
               <p className="pos-eyebrow">PAYMENT METHOD</p>
+              <button className="pos-secondary-button" disabled={busy || !businessId} onClick={() => void connectPayPal()}>Connect this business to PayPal</button>
               <div className="pos-payment-options"><button className={paymentMethod === "cash" ? "selected" : ""} onClick={() => setPaymentMethod("cash")}>Cash</button><button className={paymentMethod === "card_terminal" ? "selected" : ""} onClick={() => setPaymentMethod("card_terminal")}>Card terminal</button><button className={paymentMethod === "paypal" ? "selected" : ""} onClick={() => setPaymentMethod("paypal")}>PayPal</button></div>
               {paymentMethod === "cash" ? <label>Cash received (£)<input inputMode="decimal" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} placeholder="0.00" /></label> : paymentMethod === "card_terminal" ?
                 <label>External terminal reference (optional)<input value={terminalReference} onChange={(event) => setTerminalReference(event.target.value)} placeholder="External terminal or lane reference" /><small>No terminal provider is connected yet. This request will remain pending until a provider confirms approval.</small></label> :
