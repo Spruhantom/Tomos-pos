@@ -125,7 +125,10 @@ mod tests {
         assert_eq!(AuditEventType::SaleCreated.as_str(), "sale.created");
         assert_eq!(AuditEntityType::Sale.as_str(), "sale");
         assert_eq!(AuditEntityType::Tender.as_str(), "payment_tender");
-        assert_eq!(AuditEventType::PaymentTenderCreated.as_str(), "payment.tender_created");
+        assert_eq!(
+            AuditEventType::PaymentTenderCreated.as_str(),
+            "payment.tender_created"
+        );
         assert_eq!(AuditEntityType::Business.as_str(), "business");
         assert_eq!(AuditEventType::StaffInvited.as_str(), "staff.invited");
         assert_eq!(AuditEntityType::Invitation.as_str(), "staff_invitation");
