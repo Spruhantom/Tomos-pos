@@ -164,7 +164,7 @@ export default function LoyaltyPage() {
           <label>Customer<select value={selectedCustomer} onChange={(event) => setSelectedCustomer(event.target.value)}><option value="">Choose customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.display_name} · {customer.balance_points} points</option>)}</select></label>
           <p><strong>Available balance:</strong> {currentCustomer?.balance_points ?? 0} points</p>
           <label>Points to redeem<input type="number" min="1" value={redeemPoints} onChange={(event) => setRedeemPoints(event.target.value)} /></label>
-          <p><small>At the current conversion, {program.redemption_points_per_major_unit} points equal £1. Rewards are issued as a tracked claim; cashier application to a sale is a follow-up workflow.</small></p>
+          <p><small>At the current conversion, {program.redemption_points_per_major_unit} points equal £1. Rewards are issued as a tracked code. At checkout, select the same customer and enter the reward code to apply its value to the sale.</small></p>
           <button disabled={busy || !selectedCustomer} onClick={() => void redeem()}>Issue reward</button>
           {reward && <section className="pos-result"><b>Reward issued</b><strong>£{(reward.reward_value_minor / 100).toFixed(2)}</strong><p>{reward.points_redeemed} points redeemed</p><code>{reward.reward_code}</code></section>}
           <a className="pos-secondary-button" href="/integrations">Business integrations</a>
