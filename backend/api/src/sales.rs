@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use tomos_sumup_bridge::{CheckoutRequest, Money, SumUpClient, SumUpConfig};
+use tomos_sumup_bridge::{CheckoutRequest, Money, SumUpClient, SumUpConfig, SumUpError};
 
 use crate::{
     auth::{self, AuthContext, AuthState},
@@ -194,30 +194,36 @@ pub async fn start_sumup_payment(
     };
 
     if let Err(error) = client.create_checkout(&checkout).await {
-        tracing::error!(%error, sale_id = %sale.id, attempt_id = %attempt.id, "SumUp rejected checkout initiation");
-        let mut failure_tx = state
-            .db
-            .begin()
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
-            .bind(context.tenant_id.to_string())
+        tracing::error!(%error, sale_id = %sale.id, attempt_id = %attempt.id, "SumUp checkout initiation returned an error");
+        // Only a definitive provider 4xx rejection is safe to mark failed.
+        // A timeout, transport error or provider 5xx may occur after the reader
+        // accepted the checkout; leave it pending for reconciliation so a late
+        // successful webhook is not discarded and no duplicate charge is started.
+        if matches!(&error, SumUpError::Api { status: 400..=499, .. }) {
+            let mut failure_tx = state
+                .db
+                .begin()
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
+                .bind(context.tenant_id.to_string())
+                .execute(&mut *failure_tx)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            sqlx::query(
+                "UPDATE sumup_payment_attempts SET status = 'failed', \
+                 failure_reason = 'SumUp definitively rejected checkout initiation', updated_at = now() \
+                 WHERE id = $1 AND status = 'pending'",
+            )
+            .bind(attempt.id)
             .execute(&mut *failure_tx)
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        sqlx::query(
-            "UPDATE sumup_payment_attempts SET status = 'failed', \
-             failure_reason = 'checkout initiation failed; inspect server logs', updated_at = now() \
-             WHERE id = $1 AND status = 'pending'",
-        )
-        .bind(attempt.id)
-        .execute(&mut *failure_tx)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        failure_tx
-            .commit()
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            failure_tx
+                .commit()
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        }
         return Err(StatusCode::BAD_GATEWAY);
     }
 
