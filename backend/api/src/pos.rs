@@ -878,7 +878,13 @@ pub async fn checkout(
         }
     };
 
-    let event = if is_cash { AuditEventType::SaleCreated } else { AuditEventType::CardPaymentInitiated };
+    let event = if is_cash {
+        AuditEventType::SaleCreated
+    } else if request.payment_method == "paypal" {
+        AuditEventType::PaypalPaymentInitiated
+    } else {
+        AuditEventType::CardPaymentInitiated
+    };
     if let Err(db_error) = crate::audit::record_event(
         &mut tx, &context, event, AuditEntityType::Sale, Some(sale_id),
         serde_json::json!({ "sale_number": counter, "total_minor": total, "currency_code": currency, "payment_method": request.payment_method.clone(), "payment_status": payment_status }),
