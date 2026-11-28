@@ -313,6 +313,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ))
                 .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
         )
+
+        .route(
+            "/api/v1/pos/tills/current",
+            get(pos::current_till)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState { auth: auth_state.clone(), permission_key: "pos.till.manage" },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
         .route(
             "/api/v1/pos/tills/open",
             post(pos::open_till)
