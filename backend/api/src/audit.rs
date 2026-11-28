@@ -9,6 +9,7 @@ pub enum AuditEventType {
     BusinessCreated,
     StaffInvited,
     StaffInvitationAccepted,
+    SaleCreated,
 }
 
 impl AuditEventType {
@@ -17,6 +18,7 @@ impl AuditEventType {
             Self::BusinessCreated => "business.created",
             Self::StaffInvited => "staff.invited",
             Self::StaffInvitationAccepted => "staff.invitation_accepted",
+            Self::SaleCreated => "sale.created",
         }
     }
 }
@@ -27,6 +29,7 @@ pub enum AuditEntityType {
     Business,
     Invitation,
     Membership,
+    Sale,
 }
 
 impl AuditEntityType {
@@ -35,6 +38,7 @@ impl AuditEntityType {
             Self::Business => "business",
             Self::Invitation => "staff_invitation",
             Self::Membership => "membership",
+            Self::Sale => "sale",
         }
     }
 }
