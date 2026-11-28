@@ -56,7 +56,9 @@ impl SumUpClient {
     /// SumUp pairing codes expire after five minutes.
     pub async fn pair_reader(&self, pairing_code: &str, name: Option<&str>) -> Result<Reader> {
         if pairing_code.trim().is_empty() {
-            return Err(SumUpError::InvalidRequest(\n                "pairing_code is required".into(),\n            ));
+            return Err(SumUpError::InvalidRequest(
+                "pairing_code is required".into(),
+            ));
         }
         let mut payload = serde_json::json!({ "pairing_code": pairing_code });
         if let Some(name) = name.filter(|value| !value.trim().is_empty()) {
