@@ -214,7 +214,7 @@ CREATE TRIGGER tenders_immutable_after_capture
     BEFORE UPDATE OR DELETE ON payment_tenders
     FOR EACH ROW EXECUTE FUNCTION prevent_tender_mutation_after_capture();
 
-CREATE FUNCTION prevent_completed_sale_item_mutation() RETURNS trigger AS $
+CREATE FUNCTION prevent_completed_sale_item_mutation() RETURNS trigger AS $function$
 BEGIN
     IF EXISTS (
         SELECT 1 FROM sales
@@ -234,7 +234,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$ LANGUAGE plpgsql;
+$function$ LANGUAGE plpgsql;
 
 CREATE TRIGGER sale_items_immutable_after_completion
     BEFORE UPDATE OR DELETE ON sale_items
