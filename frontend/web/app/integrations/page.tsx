@@ -28,6 +28,11 @@ export default function IntegrationsPage() {
   const [startAt, setStartAt] = useState("");
   const [endAt, setEndAt] = useState("");
   const [location, setLocation] = useState("");
+  const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
+  const [editSummary, setEditSummary] = useState("");
+  const [editLocation, setEditLocation] = useState("");
+  const [editStartAt, setEditStartAt] = useState("");
+  const [editEndAt, setEditEndAt] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -154,6 +159,41 @@ export default function IntegrationsPage() {
     finally { setBusy(false); }
   }
 
+  function editAppointment(item: Appointment) {
+    const toLocal = (value: string) => {
+      const date = new Date(value);
+      const offset = date.getTimezoneOffset() * 60_000;
+      return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+    };
+    setEditingAppointment(item);
+    setEditSummary(item.summary);
+    setEditLocation(item.location || "");
+    setEditStartAt(toLocal(item.start_at));
+    setEditEndAt(toLocal(item.end_at));
+  }
+
+  async function saveEditedAppointment(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingAppointment || !editSummary.trim() || !editStartAt || !editEndAt) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      await api(`calendar/appointments/${editingAppointment.id}`, {
+        method: "PUT", tenantId,
+        body: {
+          business_id: businessId,
+          summary: editSummary.trim(),
+          location: editLocation.trim() || null,
+          start_at: new Date(editStartAt).toISOString(),
+          end_at: new Date(editEndAt).toISOString(),
+        },
+      });
+      setEditingAppointment(null);
+      await loadIntegrationState();
+      setNotice("Appointment updated in TomOS and Google Calendar. SumUp Bookings will receive the update through its Google Calendar sync.");
+    } catch (reason) { setError(messageOf(reason)); }
+    finally { setBusy(false); }
+  }
+
   if (loading) return <main className="pos-loading">Loading integrations…</main>;
   return (
     <main className="pos-shell">
@@ -196,7 +236,16 @@ export default function IntegrationsPage() {
               <button disabled={busy}>Create appointment</button>
             </form>}
             <h3>Upcoming appointments</h3>
-            {appointments.length ? appointments.slice(0, 25).map((item) => <article className="pos-cart-line" key={item.id}><div><b>{item.summary}</b><small>{localDate(item.start_at)} – {localDate(item.end_at)}</small><small>{item.source === "google" ? "Imported calendar event" : "TomOS appointment"} · {item.status}</small></div></article>) : <p className="pos-empty">No appointments have been synchronised yet.</p>}
+            {editingAppointment && <form className="pos-till-tools" onSubmit={(event) => void saveEditedAppointment(event)}>
+              <h3>Edit appointment</h3>
+              <label>Title<input value={editSummary} onChange={(event) => setEditSummary(event.target.value)} required /></label>
+              <label>Location<input value={editLocation} onChange={(event) => setEditLocation(event.target.value)} /></label>
+              <label>Starts<input type="datetime-local" value={editStartAt} onChange={(event) => setEditStartAt(event.target.value)} required /></label>
+              <label>Ends<input type="datetime-local" value={editEndAt} onChange={(event) => setEditEndAt(event.target.value)} required /></label>
+              <button disabled={busy}>Save appointment changes</button>
+              <button type="button" className="pos-secondary-button" onClick={() => setEditingAppointment(null)}>Cancel editing</button>
+            </form>}
+            {appointments.length ? appointments.slice(0, 25).map((item) => <article className="pos-cart-line" key={item.id}><div><b>{item.summary}</b><small>{localDate(item.start_at)} – {localDate(item.end_at)}</small><small>{item.source === "google" ? "Imported calendar event" : "TomOS appointment"} · {item.status}</small></div><button className="pos-secondary-button" disabled={busy || item.status === "cancelled"} onClick={() => editAppointment(item)}>Edit</button></article>) : <p className="pos-empty">No appointments have been synchronised yet.</p>}
           </section>
         </section>
         <aside className="pos-cart">
