@@ -245,10 +245,19 @@ CREATE TABLE loyalty_redemptions (
     redeemed_sale_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     redeemed_at TIMESTAMPTZ,
+    UNIQUE (tenant_id, id),
     FOREIGN KEY (tenant_id, business_id, customer_id)
         REFERENCES pos_customers(tenant_id, business_id, id) ON DELETE RESTRICT,
     FOREIGN KEY (tenant_id, redeemed_sale_id) REFERENCES sales(tenant_id, id) ON DELETE RESTRICT
 );
+ALTER TABLE sales
+    ADD COLUMN discount_minor BIGINT NOT NULL DEFAULT 0 CHECK (discount_minor >= 0),
+    ADD COLUMN discount_tax_minor BIGINT NOT NULL DEFAULT 0 CHECK (discount_tax_minor >= 0 AND discount_tax_minor <= discount_minor),
+    ADD COLUMN loyalty_redemption_id UUID;
+ALTER TABLE sales ADD CONSTRAINT sales_loyalty_redemption_fk
+    FOREIGN KEY (tenant_id, loyalty_redemption_id)
+    REFERENCES loyalty_redemptions(tenant_id, id) ON DELETE RESTRICT;
+
 ALTER TABLE loyalty_redemptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE loyalty_redemptions FORCE ROW LEVEL SECURITY;
 CREATE POLICY loyalty_redemptions_tenant_isolation ON loyalty_redemptions
