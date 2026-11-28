@@ -293,7 +293,7 @@ BEGIN
     IF NOT FOUND OR earn_rate <= 0 THEN
         RETURN NEW;
     END IF;
-    earned := (NEW.total_minor / 100) * earn_rate;
+    earned := floor(NEW.total_minor::numeric * earn_rate / 100)::bigint;
     IF earned <= 0 THEN
         RETURN NEW;
     END IF;
