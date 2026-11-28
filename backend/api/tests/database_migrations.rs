@@ -168,6 +168,23 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     .await
     .expect("tenant B sale should be created");
 
+    for (tenant_id, user_id, sku, name) in [
+        (tenant_a, user_a, "A-001", "Tenant A product"),
+        (tenant_b, user_b, "B-001", "Tenant B product"),
+    ] {
+        sqlx::query(
+            "INSERT INTO pos_products (tenant_id, sku, name, unit_price_minor, currency, created_by) \
+             VALUES ($1, $2, $3, 999, 'GBP', $4)",
+        )
+        .bind(tenant_id)
+        .bind(sku)
+        .bind(name)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .expect("tenant product should be created");
+    }
+
     for (tenant_id, sale_id, suffix) in [(tenant_a, sale_a, "a"), (tenant_b, sale_b, "b")] {
         sqlx::query(
             "INSERT INTO sumup_payment_attempts \
@@ -233,6 +250,10 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         attempts_without_context, 0,
         "no tenant context must hide payment attempts"
     );
+    assert_eq!(
+        products_without_context, 0,
+        "no tenant context must hide products"
+    );
 
     let without_context: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM businesses")
         .fetch_one(&mut *tx)
@@ -261,6 +282,10 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     assert_eq!(
         visible_attempts, 1,
         "tenant A must see only its own payment attempt"
+    );
+    assert_eq!(
+        visible_products, 1,
+        "tenant A must see only its own product"
     );
 
     let visible: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM businesses")
