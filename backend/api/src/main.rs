@@ -1,8 +1,9 @@
 mod audit;
 mod auth;
+mod sumup;
 
 use axum::{
-    extract::{Extension, State},
+    extract::{DefaultBodyLimit, Extension, State},
     http::StatusCode,
     middleware::from_fn_with_state,
     routing::{get, post},
@@ -90,6 +91,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
+        .route(
+            "/api/v1/payments/sumup/webhook/{token}",
+            post(sumup::webhook).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
         .route("/api/v1/auth/setup", post(auth::initial_setup))
         .route("/api/v1/auth/login", post(auth::login))
         .route("/api/v1/auth/logout", post(auth::logout))
