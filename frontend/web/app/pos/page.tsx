@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 
 type User = { id: string; email: string; display_name: string };
@@ -79,13 +79,6 @@ export default function PosPage() {
       .catch((reason) => { if (active) setError(messageOf(reason)); });
     return () => { active = false; };
   }, [tenantId]);
-
-  const loadLocationData = useCallback(async () => {
-    if (!tenantId || !businessId) return;
-    const result = await api<{ locations: Location[] }>(`businesses/${businessId}/locations`, { tenantId });
-    setLocations(result.locations.filter((location) => location.is_active));
-    setLocationId((current) => result.locations.some((location) => location.id === current && location.is_active) ? current : (result.locations.find((location) => location.is_active)?.id ?? ""));
-  }, [tenantId, businessId]);
 
   useEffect(() => {
     let active = true;
@@ -216,7 +209,7 @@ export default function PosPage() {
               <div className="pos-payment-options"><button className={paymentMethod === "cash" ? "selected" : ""} onClick={() => setPaymentMethod("cash")}>Cash</button><button className={paymentMethod === "card_terminal" ? "selected" : ""} onClick={() => setPaymentMethod("card_terminal")}>Card terminal</button></div>
               {paymentMethod === "cash" ? <label>Cash received (£)<input inputMode="decimal" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} placeholder="0.00" /></label> :
                 <label>Terminal reference (optional)<input value={terminalReference} onChange={(event) => setTerminalReference(event.target.value)} placeholder="Terminal or lane reference" /><small>Card payments remain pending until a connected terminal provider confirms approval.</small></label>}
-              <button className="pos-pay-button" disabled={busy || !cartLines.length}>{busy ? "Processing…" : paymentMethod === "cash" ? "Complete cash sale" : "Start card terminal payment"}</button>
+              <button className="pos-pay-button" onClick={() => void takePayment()} disabled={busy || !cartLines.length}>{busy ? "Processing…" : paymentMethod === "cash" ? "Complete cash sale" : "Start card terminal payment"}</button>
               <button className="pos-clear" disabled={busy || !cartLines.length} onClick={() => setCart({})}>Clear basket</button>
             </div>
           </aside>
