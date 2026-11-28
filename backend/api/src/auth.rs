@@ -1097,10 +1097,10 @@ pub async fn create_staff_invitation(
 struct StaffInvitationListItem {
     id: String,
     email: String,
-    created_at: chrono::DateTime<chrono::Utc>,
-    expires_at: chrono::DateTime<chrono::Utc>,
-    accepted_at: Option<chrono::DateTime<chrono::Utc>>,
-    revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+    created_at: String,
+    expires_at: String,
+    accepted_at: Option<String>,
+    revoked_at: Option<String>,
     status: &'static str,
 }
 
@@ -1160,10 +1160,10 @@ pub async fn list_staff_invitations(
         StaffInvitationListItem {
             id: row.id.to_string(),
             email: row.email_normalized,
-            created_at: row.created_at,
-            expires_at: row.expires_at,
-            accepted_at: row.accepted_at,
-            revoked_at: row.revoked_at,
+            created_at: row.created_at.to_rfc3339(),
+            expires_at: row.expires_at.to_rfc3339(),
+            accepted_at: row.accepted_at.map(|value| value.to_rfc3339()),
+            revoked_at: row.revoked_at.map(|value| value.to_rfc3339()),
             status,
         }
     }).collect::<Vec<_>>();
