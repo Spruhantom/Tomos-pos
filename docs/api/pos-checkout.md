@@ -24,7 +24,7 @@ Till operations require `pos.till.manage`. Cash expectations include the opening
 
 Cash requires `cash_received_minor` to cover the total. The API atomically creates the sale, line snapshots, captured cash tender and audit event, then returns the change due. The transaction cannot be partially committed.
 
-Card terminal checkout creates an `awaiting_payment` sale and a `pending` card-terminal tender. It does not mark the sale paid, and the UI instructs staff not to release goods. A provider adapter, authenticated terminal response/webhook, signature validation, idempotent capture and reconciliation are still required before a card payment can be confirmed. No PAN or CVV is accepted or stored.
+Card terminal checkout creates an `awaiting_payment` sale and a `pending` card-terminal tender. PayPal checkout creates an `awaiting_payment` sale and a `pending` PayPal tender, then uses the multiparty PayPal order and capture endpoints documented in [PayPal multiparty integration](../payments/paypal-multiparty.md). It does not mark the sale paid, and the UI instructs staff not to release goods. A provider adapter, authenticated terminal response/webhook, signature validation, idempotent capture and reconciliation are still required before a card payment can be confirmed. No PAN or CVV is accepted or stored.
 
 ## Integrity and limitations
 
