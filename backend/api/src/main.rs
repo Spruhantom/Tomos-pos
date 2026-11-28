@@ -1,6 +1,7 @@
 mod audit;
 mod auth;
 mod basket;
+mod cash;
 mod catalogue;
 mod sales;
 pub(crate) mod sumup;
@@ -341,6 +342,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/api/v1/sales/{sale_id}",
             get(sales::get_sale)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "sales.manage",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/sales/{sale_id}/payments/cash",
+            post(cash::take_cash_payment)
                 .route_layer(from_fn_with_state(
                     auth::PermissionState {
                         auth: auth_state.clone(),
