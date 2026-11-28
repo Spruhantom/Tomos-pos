@@ -45,7 +45,7 @@ Set `COOKIE_SECURE=true` whenever the application is served over HTTPS. The samp
 
 ## Current limitations — not production ready
 
-- Staff invitation creation, listing and revocation are implemented; staff membership listing/deactivation and role-assignment endpoints are still outstanding.
+- Staff invitation creation, listing and revocation are implemented. Tenant-scoped staff membership listing and removal are also available; role-assignment and reactivation endpoints remain outstanding.
 - CSRF/origin validation currently covers authentication state changes; all future cookie-authenticated mutation routes must apply the same origin validation or a stronger CSRF token strategy.
 - MFA, password reset, email verification and session/device management are outstanding.
 - Tenant-scoped authorisation middleware is implemented for the tenant context and staff invitation endpoints; every future business route still needs explicit permission middleware and tenant-scoped transactions.
@@ -76,3 +76,10 @@ POST /api/v1/staff/invitations requires an authenticated tenant session and the 
 POST /api/v1/staff/invitations/accept accepts a valid invitation for a new account, requires the exact configured Origin, a password of at least 12 characters and a display name, creates the account and active membership, assigns only the preselected Staff role, records an audit event and creates a session in one transaction. Expired, revoked, invalid and previously used tokens are rejected. Existing-account invitation linking is not implemented and returns a conflict.
 
 The Staff role created during initial setup currently grants only business.read. `GET /api/v1/staff/invitations` lists up to 200 newest invitations for the selected tenant and returns their status (`pending`, `expired`, `accepted` or `revoked`) without exposing token digests. `DELETE /api/v1/staff/invitations/{invitation_id}` revokes a pending invitation; accepted, expired or already-revoked invitations cannot be revoked. Both endpoints require `roles.manage`; revocation also requires the exact configured `Origin` and is recorded in the append-only audit ledger. Email delivery, email verification and existing-account linking remain outstanding. Treat invitation tokens like passwords: anyone holding one can claim the invitation.
+
+
+## Staff membership management
+
+`GET /api/v1/staff/memberships` requires the `staff.read` permission and returns up to 200 memberships for the selected tenant, including the account's public email/display name, membership status and assigned role keys. It does not expose password hashes, session data or other tenants' memberships.
+
+`DELETE /api/v1/staff/memberships/{membership_id}` requires `staff.manage` and the exact configured `Origin`. It changes only the selected tenant membership to `removed`; it does not disable the user's global account or revoke sessions for other tenants. The acting user cannot remove their own membership, and owner memberships are protected from this endpoint. The change and the `staff.deactivated` audit event are committed in one transaction. Removed memberships cannot currently be reactivated through the API.
