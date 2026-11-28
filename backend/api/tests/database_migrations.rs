@@ -242,6 +242,10 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
             .fetch_one(&mut *tx)
             .await
             .expect("payment attempts query without tenant context should succeed");
+    let products_without_context: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos_products")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("product query without tenant context should succeed");
     assert_eq!(
         sales_without_context, 0,
         "no tenant context must hide sales"
@@ -278,6 +282,10 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         .fetch_one(&mut *tx)
         .await
         .expect("tenant-scoped payment attempt query should succeed");
+    let visible_products: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos_products")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("tenant-scoped product query should succeed");
     assert_eq!(visible_sales, 1, "tenant A must see only its own sale");
     assert_eq!(
         visible_attempts, 1,
