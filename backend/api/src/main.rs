@@ -317,10 +317,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     },
                     auth::require_permission,
                 ))
-                .route_layer(from_fn_with_state(
-                    auth_state.clone(),
-                    auth::require_tenant,
-                )),
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
         )
         .route(
             "/api/v1/pos/tills/current",
@@ -328,14 +325,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .route_layer(from_fn_with_state(
                     auth::PermissionState {
                         auth: auth_state.clone(),
-                        permission_key: "pos.till.manage",
+                        permission_key: "pos.checkout",
                     },
                     auth::require_permission,
                 ))
-                .route_layer(from_fn_with_state(
-                    auth_state.clone(),
-                    auth::require_tenant,
-                )),
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
         )
         .route(
             "/api/v1/pos/tills/open",
@@ -347,10 +341,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     },
                     auth::require_permission,
                 ))
-                .route_layer(from_fn_with_state(
-                    auth_state.clone(),
-                    auth::require_tenant,
-                )),
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
         )
         .route(
             "/api/v1/pos/tills/{till_id}/cash-movements",
@@ -362,10 +353,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     },
                     auth::require_permission,
                 ))
-                .route_layer(from_fn_with_state(
-                    auth_state.clone(),
-                    auth::require_tenant,
-                )),
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
         )
         .route(
             "/api/v1/pos/tills/{till_id}/close",
@@ -377,10 +365,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     },
                     auth::require_permission,
                 ))
-                .route_layer(from_fn_with_state(
-                    auth_state.clone(),
-                    auth::require_tenant,
-                )),
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
         )
         .route(
             "/api/v1/pos/sales",
@@ -392,10 +377,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     },
                     auth::require_permission,
                 ))
-                .route_layer(from_fn_with_state(
-                    auth_state.clone(),
-                    auth::require_tenant,
-                )),
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
         )
         .with_state(auth_state);
 
