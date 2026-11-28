@@ -242,7 +242,8 @@ pub async fn oauth_callback(
         return Redirect::to(&format!("{app_origin}/integrations?sumup=no_merchant")).into_response();
     }
     let scopes = token_response["scope"].as_str().unwrap_or_default();
-    let reader_scope_granted = scopes.split_whitespace().any(|scope| scope == "readers.write");
+    let granted: Vec<&str> = scopes.split_whitespace().collect();
+    let reader_scope_granted = granted.contains(&"readers.write") && granted.contains(&"readers.read");
     let merchant_code = if reader_scope_granted && merchants.len() == 1 {
         merchants[0]["merchant_code"].as_str().map(str::to_string)
     } else {
@@ -320,7 +321,7 @@ pub async fn select_merchant(
     };
     let updated = sqlx::query(
         "UPDATE sumup_business_accounts SET merchant_code=$3, connection_status='connected', connected_at=now(), updated_at=now() \
-         WHERE tenant_id=$1 AND business_id=$2 AND granted_scopes LIKE '%readers.write%' AND available_merchants @> jsonb_build_array(jsonb_build_object('merchant_code',$3))",
+         WHERE tenant_id=$1 AND business_id=$2 AND granted_scopes LIKE '%readers.write%' AND granted_scopes LIKE '%readers.read%' AND available_merchants @> jsonb_build_array(jsonb_build_object('merchant_code',$3))",
     )
     .bind(context.tenant_id)
     .bind(request.business_id)
