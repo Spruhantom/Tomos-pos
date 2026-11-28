@@ -2155,3 +2155,393 @@ pub async fn deactivate_staff_membership(
 
     StatusCode::NO_CONTENT.into_response()
 }
+
+#[derive(Deserialize)]
+pub struct CreateCustomRoleRequest {
+    pub role_key: String,
+    pub display_name: String,
+    pub permission_keys: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateRolePermissionsRequest {
+    pub permission_keys: Vec<String>,
+}
+
+fn valid_custom_role_key(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    (2..=40).contains(&bytes.len())
+        && bytes[0].is_ascii_lowercase()
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'-')
+        && !matches!(value, "owner" | "staff")
+}
+
+fn valid_role_display_name(value: &str) -> bool {
+    let trimmed = value.trim();
+    (2..=80).contains(&trimmed.chars().count()) && !trimmed.chars().any(char::is_control)
+}
+
+fn valid_permission_keys(keys: &[String]) -> bool {
+    keys.len() <= 32
+        && keys.iter().all(|key| {
+            !key.is_empty()
+                && key.len() <= 80
+                && key
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'.')
+        })
+        && keys.iter().collect::<std::collections::HashSet<_>>().len() == keys.len()
+}
+
+/// Return the fixed permission catalogue. Clients may choose only from these
+/// server-owned keys; they cannot create permission names of their own.
+pub async fn list_permission_catalogue(State(state): State<AuthState>) -> Response {
+    let rows = match sqlx::query_as::<_, (String, String)>(
+        "SELECT permission_key, description FROM permissions ORDER BY permission_key",
+    )
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(db_error) => {
+            tracing::error!(%db_error, "permission catalogue query failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "permissions could not be listed",
+            );
+        }
+    };
+
+    let permissions = rows
+        .into_iter()
+        .map(|(key, description)| serde_json::json!({ "key": key, "description": description }))
+        .collect::<Vec<_>>();
+    Json(serde_json::json!({ "permissions": permissions })).into_response()
+}
+
+/// Create a tenant-owned custom role and its permission grants atomically.
+pub async fn create_custom_role(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    headers: HeaderMap,
+    Json(request): Json<CreateCustomRoleRequest>,
+) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+
+    let role_key = request.role_key.trim();
+    let display_name = request.display_name.trim();
+    if !valid_custom_role_key(role_key) || !valid_role_display_name(display_name) {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "role key or display name is invalid",
+        );
+    }
+    if !valid_permission_keys(&request.permission_keys) {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "permission keys are invalid or duplicated",
+        );
+    }
+
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "custom role creation transaction failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "role could not be created",
+            );
+        }
+    };
+
+    let known_count = match sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM permissions WHERE permission_key = ANY($1)",
+    )
+    .bind(&request.permission_keys)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(count) => count,
+        Err(db_error) => {
+            tracing::error!(%db_error, "custom role permission validation failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "role could not be created",
+            );
+        }
+    };
+    if known_count != request.permission_keys.len() as i64 {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "one or more permission keys are not recognised",
+        );
+    }
+
+    let role_id = match sqlx::query_scalar::<_, uuid::Uuid>(
+        "INSERT INTO roles (tenant_id, role_key, display_name, is_system) \
+         VALUES ($1, $2, $3, FALSE) RETURNING id",
+    )
+    .bind(context.tenant_id)
+    .bind(role_key)
+    .bind(display_name)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(role_id) => role_id,
+        Err(sqlx::Error::Database(db_error)) if db_error.code().as_deref() == Some("23505") => {
+            return error(StatusCode::CONFLICT, "a role with this key already exists");
+        }
+        Err(db_error) => {
+            tracing::error!(%db_error, "custom role insert failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "role could not be created",
+            );
+        }
+    };
+
+    if let Err(db_error) = sqlx::query(
+        "INSERT INTO role_permissions (tenant_id, role_id, permission_id) \
+         SELECT $1, $2, id FROM permissions WHERE permission_key = ANY($3)",
+    )
+    .bind(context.tenant_id)
+    .bind(role_id)
+    .bind(&request.permission_keys)
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(%db_error, "custom role permission insert failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "role could not be created",
+        );
+    }
+
+    if let Err(db_error) = crate::audit::record_event(
+        &mut tx,
+        &context,
+        crate::audit::AuditEventType::RoleCreated,
+        crate::audit::AuditEntityType::Role,
+        Some(role_id),
+        serde_json::json!({
+            "role_key": role_key,
+            "display_name": display_name,
+            "permission_keys": request.permission_keys
+        }),
+    )
+    .await
+    {
+        tracing::error!(%db_error, "custom role audit event failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "role could not be created",
+        );
+    }
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "custom role creation commit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "role could not be created",
+        );
+    }
+
+    (
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "id": role_id,
+            "key": role_key,
+            "display_name": display_name,
+            "permissions": request.permission_keys
+        })),
+    )
+        .into_response()
+}
+
+/// Replace a custom role's permission set. Built-in Owner and Staff roles are
+/// intentionally immutable through this endpoint.
+pub async fn update_custom_role_permissions(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    axum::extract::Path(role_id): axum::extract::Path<uuid::Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<UpdateRolePermissionsRequest>,
+) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+    if !valid_permission_keys(&request.permission_keys) {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "permission keys are invalid or duplicated",
+        );
+    }
+
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "role permission update transaction failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "role permissions could not be updated",
+            );
+        }
+    };
+
+    let role_key = match sqlx::query_scalar::<_, String>(
+        "SELECT role_key FROM roles \
+         WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+    )
+    .bind(role_id)
+    .bind(context.tenant_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(role_key)) => role_key,
+        Ok(None) => return error(StatusCode::NOT_FOUND, "role was not found"),
+        Err(db_error) => {
+            tracing::error!(%db_error, "role permission target lookup failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "role permissions could not be updated",
+            );
+        }
+    };
+
+    if matches!(role_key.as_str(), "owner" | "staff") {
+        return error(
+            StatusCode::CONFLICT,
+            "built-in Owner and Staff roles cannot be edited",
+        );
+    }
+
+    let known_count = match sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM permissions WHERE permission_key = ANY($1)",
+    )
+    .bind(&request.permission_keys)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(count) => count,
+        Err(db_error) => {
+            tracing::error!(%db_error, "role permission validation failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "role permissions could not be updated",
+            );
+        }
+    };
+    if known_count != request.permission_keys.len() as i64 {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "one or more permission keys are not recognised",
+        );
+    }
+
+    if let Err(db_error) =
+        sqlx::query("DELETE FROM role_permissions WHERE tenant_id = $1 AND role_id = $2")
+            .bind(context.tenant_id)
+            .bind(role_id)
+            .execute(&mut *tx)
+            .await
+    {
+        tracing::error!(%db_error, "role permission replacement delete failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "role permissions could not be updated",
+        );
+    }
+
+    if let Err(db_error) = sqlx::query(
+        "INSERT INTO role_permissions (tenant_id, role_id, permission_id) \
+         SELECT $1, $2, id FROM permissions WHERE permission_key = ANY($3)",
+    )
+    .bind(context.tenant_id)
+    .bind(role_id)
+    .bind(&request.permission_keys)
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(%db_error, "role permission replacement insert failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "role permissions could not be updated",
+        );
+    }
+
+    if let Err(db_error) = crate::audit::record_event(
+        &mut tx,
+        &context,
+        crate::audit::AuditEventType::RolePermissionsChanged,
+        crate::audit::AuditEntityType::Role,
+        Some(role_id),
+        serde_json::json!({
+            "role_key": role_key,
+            "permission_keys": request.permission_keys
+        }),
+    )
+    .await
+    {
+        tracing::error!(%db_error, "role permission audit event failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "role permissions could not be updated",
+        );
+    }
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "role permission update commit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "role permissions could not be updated",
+        );
+    }
+
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[cfg(test)]
+mod custom_role_validation_tests {
+    use super::{valid_custom_role_key, valid_permission_keys, valid_role_display_name};
+
+    #[test]
+    fn custom_role_keys_reject_reserved_and_unsafe_values() {
+        assert!(valid_custom_role_key("cashier"));
+        assert!(valid_custom_role_key("shift-manager"));
+        assert!(!valid_custom_role_key("owner"));
+        assert!(!valid_custom_role_key("staff"));
+        assert!(!valid_custom_role_key("Cashier"));
+        assert!(!valid_custom_role_key("has spaces"));
+        assert!(!valid_custom_role_key("-starts-wrong"));
+        assert!(!valid_custom_role_key("x"));
+    }
+
+    #[test]
+    fn role_display_names_are_trimmed_and_bounded() {
+        assert!(valid_role_display_name("Supervisor"));
+        assert!(valid_role_display_name("  Cashier  "));
+        assert!(!valid_role_display_name(" "));
+        assert!(!valid_role_display_name("x"));
+        assert!(!valid_role_display_name(&"a".repeat(81)));
+    }
+
+    #[test]
+    fn permission_lists_reject_unknown_shape_and_duplicates() {
+        assert!(valid_permission_keys(&[
+            "business.read".to_string(),
+            "reports.read".to_string()
+        ]));
+        assert!(valid_permission_keys(&[]));
+        assert!(!valid_permission_keys(&[
+            "business.read".to_string(),
+            "business.read".to_string()
+        ]));
+        assert!(!valid_permission_keys(&["unknown permission".to_string()]));
+        assert!(!valid_permission_keys(&["UPPER.CASE".to_string()]));
+        assert!(!valid_permission_keys(&["x".repeat(81)]));
+    }
+}

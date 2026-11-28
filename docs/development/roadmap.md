@@ -25,7 +25,9 @@
 - [x] Audited staff membership removal scoped to one tenant; protect owner and self memberships.
 - [x] Tenant-scoped role catalogue with permission keys and owner-role assignment protection.
 - [x] Audited role assignment/removal for other active non-owner memberships; prevent self-role changes and removal of a member's final role.
-- [ ] Custom role creation, permission-grant editing, email delivery, existing-account invitation linking and membership reactivation.
+- [x] Tenant-scoped custom role creation using a fixed permission catalogue; reject reserved Owner/Staff keys and unknown permissions.
+- [x] Audited custom-role permission replacement; protect built-in Owner and Staff role definitions.
+- [ ] Email delivery, existing-account invitation linking and membership reactivation.
 - [x] Argon2id password hashing and verification.
 - [x] One-time first-run owner, tenant and business provisioning.
 - [x] Login, logout and current-user session endpoints with hashed opaque session tokens.
