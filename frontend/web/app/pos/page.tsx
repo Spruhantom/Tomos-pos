@@ -40,7 +40,7 @@ export default function PosPage() {
   const [cashReceived, setCashReceived] = useState("");
   const [terminalReference, setTerminalReference] = useState("");
   const [cart, setCart] = useState<Record<string, number>>({});
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "card_terminal">("cash");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "card_terminal" | "paypal">("cash");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -48,6 +48,24 @@ export default function PosPage() {
   const [lastSale, setLastSale] = useState<CheckoutResult | null>(null);
   const [checkoutKey, setCheckoutKey] = useState("");
   const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const saleId = new URLSearchParams(window.location.search).get("paypal_sale_id");
+    if (!saleId || !tenantId) return;
+    let active = true;
+    setBusy(true); setError(""); setNotice("Confirming PayPal payment…");
+    api<{ status: string }>(`pos/sales/${saleId}/paypal/capture`, { method: "POST", tenantId })
+      .then(() => {
+        if (!active) return;
+        setNotice("PayPal payment confirmed. The sale is complete.");
+        const url = new URL(window.location.href);
+        url.searchParams.delete("paypal_sale_id");
+        window.history.replaceState({}, "", url.toString());
+      })
+      .catch((reason) => { if (active) setError(messageOf(reason)); })
+      .finally(() => { if (active) setBusy(false); });
+    return () => { active = false; };
+  }, [tenantId]);
 
   useEffect(() => {
     let active = true;
@@ -202,9 +220,16 @@ export default function PosPage() {
           idempotency_key: idempotencyKey,
           items: cartLines.map((line) => ({ product_id: line.product.id, quantity: line.quantity })),
           payment_method: paymentMethod,
-          ...(paymentMethod === "cash" ? { cash_received_minor: receivedMinor } : { terminal_reference: terminalReference || null }),
+          ...(paymentMethod === "cash" ? { cash_received_minor: receivedMinor } : paymentMethod === "card_terminal" ? { terminal_reference: terminalReference || null } : {}),
         },
       });
+      if (paymentMethod === "paypal") {
+        const order = await api<{ approval_url: string }>(`pos/sales/${result.sale_id}/paypal/order`, {
+          method: "POST", tenantId, body: { business_id: businessId },
+        });
+        window.location.assign(order.approval_url);
+        return;
+      }
       setLastSale(result);
       setNotice(result.message);
       setCart({});
@@ -249,10 +274,11 @@ export default function PosPage() {
             <div className="pos-totals"><div><span>VAT included</span><b>{money(taxMinor, selectedBusiness?.currency_code)}</b></div><div className="pos-grand-total"><span>Total</span><b>{money(totalMinor, selectedBusiness?.currency_code)}</b></div></div>
             <div className="pos-payment">
               <p className="pos-eyebrow">PAYMENT METHOD</p>
-              <div className="pos-payment-options"><button className={paymentMethod === "cash" ? "selected" : ""} onClick={() => setPaymentMethod("cash")}>Cash</button><button className={paymentMethod === "card_terminal" ? "selected" : ""} onClick={() => setPaymentMethod("card_terminal")}>Card terminal</button></div>
-              {paymentMethod === "cash" ? <label>Cash received (£)<input inputMode="decimal" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} placeholder="0.00" /></label> :
-                <label>External terminal reference (optional)<input value={terminalReference} onChange={(event) => setTerminalReference(event.target.value)} placeholder="External terminal or lane reference" /><small>No terminal provider is connected yet. This request will remain pending until a provider confirms approval.</small></label>}
-              <button className="pos-pay-button" onClick={() => void takePayment()} disabled={busy || !cartLines.length}>{busy ? "Processing…" : paymentMethod === "cash" ? "Complete cash sale" : "Create pending card payment"}</button>
+              <div className="pos-payment-options"><button className={paymentMethod === "cash" ? "selected" : ""} onClick={() => setPaymentMethod("cash")}>Cash</button><button className={paymentMethod === "card_terminal" ? "selected" : ""} onClick={() => setPaymentMethod("card_terminal")}>Card terminal</button><button className={paymentMethod === "paypal" ? "selected" : ""} onClick={() => setPaymentMethod("paypal")}>PayPal</button></div>
+              {paymentMethod === "cash" ? <label>Cash received (£)<input inputMode="decimal" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} placeholder="0.00" /></label> : paymentMethod === "card_terminal" ?
+                <label>External terminal reference (optional)<input value={terminalReference} onChange={(event) => setTerminalReference(event.target.value)} placeholder="External terminal or lane reference" /><small>No terminal provider is connected yet. This request will remain pending until a provider confirms approval.</small></label> :
+                <p className="pos-payment-note">The customer will be redirected to PayPal to approve payment. The sale remains pending until PayPal confirms capture.</p> }
+              <button className="pos-pay-button" onClick={() => void takePayment()} disabled={busy || !cartLines.length}>{busy ? "Processing…" : paymentMethod === "cash" ? "Complete cash sale" : paymentMethod === "paypal" ? "Continue to PayPal" : "Create pending card payment"}</button>
               <button className="pos-clear" disabled={busy || !cartLines.length} onClick={() => setCart({})}>Clear basket</button>
             </div>
             <div className="pos-till-tools">
@@ -268,7 +294,7 @@ export default function PosPage() {
             </div>
           </aside>
         </div>}
-      {lastSale && <section className="pos-result"><b>Sale #{lastSale.sale_number}</b><span>{lastSale.status.replaceAll("_", " ")}</span><strong>{money(lastSale.total_minor, selectedBusiness?.currency_code)}</strong>{lastSale.payment_method === "cash" && <p>Change due: {money(lastSale.change_due_minor, selectedBusiness?.currency_code)}</p>}{lastSale.payment_method === "card_terminal" && <p>Do not release the goods until the terminal provider confirms the payment.</p>}</section>}
+      {lastSale && <section className="pos-result"><b>Sale #{lastSale.sale_number}</b><span>{lastSale.status.replaceAll("_", " ")}</span><strong>{money(lastSale.total_minor, selectedBusiness?.currency_code)}</strong>{lastSale.payment_method === "cash" && <p>Change due: {money(lastSale.change_due_minor, selectedBusiness?.currency_code)}</p>}{lastSale.payment_method === "card_terminal" && <p>Do not release the goods until the terminal provider confirms the payment.</p>}{lastSale.payment_method === "paypal" && <p>PayPal payment confirmed. The sale is complete.</p>}</section>}
     </main>
   );
 }
