@@ -2546,7 +2546,6 @@ mod custom_role_validation_tests {
     }
 }
 
-
 #[derive(sqlx::FromRow)]
 struct BusinessSettingsRow {
     id: uuid::Uuid,
@@ -2596,9 +2595,9 @@ pub struct UpdateBusinessLocationRequest {
 }
 
 fn valid_optional_text(value: &Option<String>, max_len: usize) -> bool {
-    value.as_ref().is_none_or(|text| {
-        text.trim().len() <= max_len && !text.chars().any(char::is_control)
-    })
+    value
+        .as_ref()
+        .is_none_or(|text| text.trim().len() <= max_len && !text.chars().any(char::is_control))
 }
 
 fn valid_business_settings(request: &UpdateBusinessRequest) -> bool {
@@ -2631,8 +2630,7 @@ fn valid_location_code(value: &Option<String>) -> bool {
 
 fn valid_location_name(value: &str) -> bool {
     let value = value.trim();
-    (1..=120).contains(&value.chars().count())
-        && !value.chars().any(char::is_control)
+    (1..=120).contains(&value.chars().count()) && !value.chars().any(char::is_control)
 }
 
 fn valid_location_address(value: &serde_json::Value) -> bool {
@@ -2648,7 +2646,10 @@ pub async fn list_businesses(
         Ok(tx) => tx,
         Err(db_error) => {
             tracing::error!(%db_error, "business list transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "businesses could not be listed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "businesses could not be listed",
+            );
         }
     };
     let rows = match sqlx::query_as::<_, BusinessSettingsRow>(
@@ -2663,23 +2664,31 @@ pub async fn list_businesses(
         Ok(rows) => rows,
         Err(db_error) => {
             tracing::error!(%db_error, "business list query failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "businesses could not be listed");
+            return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "businesses could not be listed",
+        );
         }
     };
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "business list commit failed");
         return error(StatusCode::INTERNAL_SERVER_ERROR, "businesses could not be listed");
     }
-    let businesses = rows.into_iter().map(|row| serde_json::json!({
-        "id": row.id,
-        "legal_name": row.legal_name,
-        "trading_name": row.trading_name,
-        "company_number": row.company_number,
-        "vat_number": row.vat_number,
-        "country_code": row.country_code,
-        "currency_code": row.currency_code,
-        "timezone": row.timezone
-    })).collect::<Vec<_>>();
+    let businesses = rows
+        .into_iter()
+        .map(|row| {
+            serde_json::json!({
+                "id": row.id,
+                "legal_name": row.legal_name,
+                "trading_name": row.trading_name,
+                "company_number": row.company_number,
+                "vat_number": row.vat_number,
+                "country_code": row.country_code,
+                "currency_code": row.currency_code,
+                "timezone": row.timezone
+            })
+        })
+        .collect::<Vec<_>>();
     Json(serde_json::json!({ "businesses": businesses })).into_response()
 }
 
@@ -2701,7 +2710,10 @@ pub async fn update_business(
         Ok(tx) => tx,
         Err(db_error) => {
             tracing::error!(%db_error, "business update transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "business could not be updated");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "business could not be updated",
+            );
         }
     };
     let updated = match sqlx::query(
@@ -2713,9 +2725,27 @@ pub async fn update_business(
     .bind(context.tenant_id)
     .bind(business_id)
     .bind(request.legal_name.trim())
-    .bind(request.trading_name.as_deref().map(str::trim).filter(|v| !v.is_empty()))
-    .bind(request.company_number.as_deref().map(str::trim).filter(|v| !v.is_empty()))
-    .bind(request.vat_number.as_deref().map(str::trim).filter(|v| !v.is_empty()))
+    .bind(
+        request
+            .trading_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+    )
+    .bind(
+        request
+            .company_number
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+    )
+    .bind(
+        request
+            .vat_number
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+    )
     .bind(request.country_code.trim())
     .bind(request.currency_code.trim())
     .bind(request.timezone.trim())
@@ -2725,7 +2755,10 @@ pub async fn update_business(
         Ok(result) => result,
         Err(db_error) => {
             tracing::error!(%db_error, "business update query failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "business could not be updated");
+            return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "business could not be updated",
+        );
         }
     };
     if updated.rows_affected() != 1 {
@@ -2742,9 +2775,14 @@ pub async fn update_business(
             "currency_code": request.currency_code.trim(),
             "timezone": request.timezone.trim()
         }),
-    ).await {
+    )
+    .await
+    {
         tracing::error!(%db_error, "business update audit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "business could not be updated");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "business could not be updated",
+        );
     }
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "business update commit failed");
@@ -2763,7 +2801,10 @@ pub async fn list_business_locations(
         Ok(tx) => tx,
         Err(db_error) => {
             tracing::error!(%db_error, "location list transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "locations could not be listed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "locations could not be listed",
+            );
         }
     };
     let rows = match sqlx::query_as::<_, BusinessLocationRow>(
@@ -2779,21 +2820,29 @@ pub async fn list_business_locations(
         Ok(rows) => rows,
         Err(db_error) => {
             tracing::error!(%db_error, "location list query failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "locations could not be listed");
+            return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "locations could not be listed",
+        );
         }
     };
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "location list commit failed");
         return error(StatusCode::INTERNAL_SERVER_ERROR, "locations could not be listed");
     }
-    let locations = rows.into_iter().map(|row| serde_json::json!({
-        "id": row.id,
-        "business_id": row.business_id,
-        "name": row.name,
-        "location_code": row.location_code,
-        "address": row.address_json,
-        "is_active": row.is_active
-    })).collect::<Vec<_>>();
+    let locations = rows
+        .into_iter()
+        .map(|row| {
+            serde_json::json!({
+                "id": row.id,
+                "business_id": row.business_id,
+                "name": row.name,
+                "location_code": row.location_code,
+                "address": row.address_json,
+                "is_active": row.is_active
+            })
+        })
+        .collect::<Vec<_>>();
     Json(serde_json::json!({ "locations": locations })).into_response()
 }
 
@@ -2818,7 +2867,10 @@ pub async fn create_business_location(
         Ok(tx) => tx,
         Err(db_error) => {
             tracing::error!(%db_error, "location creation transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be created");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "location could not be created",
+            );
         }
     };
     let location_id = match sqlx::query_scalar::<_, uuid::Uuid>(
@@ -2829,7 +2881,13 @@ pub async fn create_business_location(
     .bind(context.tenant_id)
     .bind(business_id)
     .bind(request.name.trim())
-    .bind(request.location_code.as_deref().map(str::trim).filter(|v| !v.is_empty()))
+    .bind(
+        request
+            .location_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+    )
     .bind(&request.address)
     .fetch_optional(&mut *tx)
     .await
@@ -2841,7 +2899,10 @@ pub async fn create_business_location(
         }
         Err(db_error) => {
             tracing::error!(%db_error, "location insert failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be created");
+            return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "location could not be created",
+        );
         }
     };
     if let Err(db_error) = crate::audit::record_event(
@@ -2851,15 +2912,24 @@ pub async fn create_business_location(
         crate::audit::AuditEntityType::Location,
         Some(location_id),
         serde_json::json!({ "business_id": business_id, "name": request.name.trim() }),
-    ).await {
+    )
+    .await
+    {
         tracing::error!(%db_error, "location creation audit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be created");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "location could not be created",
+        );
     }
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "location creation commit failed");
         return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be created");
     }
-    (StatusCode::CREATED, Json(serde_json::json!({ "id": location_id }))).into_response()
+    (
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "id": location_id })),
+    )
+        .into_response()
 }
 
 /// Update a location's details or deactivate it without deleting historical data.
@@ -2883,7 +2953,10 @@ pub async fn update_business_location(
         Ok(tx) => tx,
         Err(db_error) => {
             tracing::error!(%db_error, "location update transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be updated");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "location could not be updated",
+            );
         }
     };
     let updated = match sqlx::query(
@@ -2906,7 +2979,10 @@ pub async fn update_business_location(
         }
         Err(db_error) => {
             tracing::error!(%db_error, "location update query failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be updated");
+            return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "location could not be updated",
+        );
         }
     };
     if updated.rows_affected() != 1 {
@@ -2919,9 +2995,14 @@ pub async fn update_business_location(
         crate::audit::AuditEntityType::Location,
         Some(location_id),
         serde_json::json!({ "name": request.name.trim(), "is_active": request.is_active }),
-    ).await {
+    )
+    .await
+    {
         tracing::error!(%db_error, "location update audit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be updated");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "location could not be updated",
+        );
     }
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "location update commit failed");
@@ -2933,8 +3014,8 @@ pub async fn update_business_location(
 #[cfg(test)]
 mod business_settings_validation_tests {
     use super::{
-        valid_business_settings, valid_location_address, valid_location_code,
-        valid_location_name, UpdateBusinessRequest,
+        valid_business_settings, valid_location_address, valid_location_code, valid_location_name,
+        UpdateBusinessRequest,
     };
     use serde_json::json;
 
