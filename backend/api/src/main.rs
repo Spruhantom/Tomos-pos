@@ -1,5 +1,6 @@
 mod audit;
 mod auth;
+mod sales;
 pub(crate) mod sumup;
 
 use axum::{
@@ -94,6 +95,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/api/v1/payments/sumup/webhook/{token}",
             post(sumup::webhook).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/api/v1/sales",
+            post(sales::create_sale)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "sales.manage",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/sales/{sale_id}/payments/sumup",
+            post(sales::start_sumup_payment)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "sales.manage",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
         )
         .route("/api/v1/auth/setup", post(auth::initial_setup))
         .route("/api/v1/auth/login", post(auth::login))
