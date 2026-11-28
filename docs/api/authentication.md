@@ -49,7 +49,7 @@ Set `COOKIE_SECURE=true` whenever the application is served over HTTPS. The samp
 - CSRF/origin validation currently covers authentication state changes; all future cookie-authenticated mutation routes must apply the same origin validation or a stronger CSRF token strategy.
 - MFA, password reset, email verification and session/device management are outstanding.
 - Tenant-scoped authorisation middleware is implemented for the tenant context and staff invitation endpoints; every future business route still needs explicit permission middleware and tenant-scoped transactions.
-- Ongoing business registration and tenant provisioning are not implemented; staff invitations are available after first-run setup.
+- Additional business registration is available within an existing tenant. Creating a new tenant and inviting its first owner are not yet implemented; staff invitations are available after first-run setup.
 - The API currently has no web frontend.
 
 Do not expose this API to the public internet or use it for live business data until the outstanding security controls and integration tests are complete.
@@ -98,3 +98,16 @@ These endpoints assign existing roles only. Custom roles are managed separately:
 - `PUT /api/v1/staff/roles/{role_id}/permissions` replaces the permission set for a custom role. An empty list creates a role with no permissions.
 
 All three routes require `roles.manage`, tenant authentication and the exact configured `Origin` for mutations. Unknown or duplicate permission keys are rejected. The API does not accept arbitrary permission definitions. The built-in Owner and Staff roles cannot be created or edited through these endpoints. Role creation and permission replacement are transactionally audited in the append-only ledger. Custom role keys are unique within each tenant.
+
+
+## Business settings and locations
+
+All business routes require a valid session, an active membership in the selected tenant and the permission stated below. Business IDs and location IDs are always resolved within the authenticated tenant; a foreign tenant's identifier is indistinguishable from a missing record.
+
+- \`GET /api/v1/businesses\` requires \`business.read\` and lists the selected tenant's businesses, including legal/trading name, company/VAT number, country, currency and timezone.
+- \`PUT /api/v1/businesses/{business_id}\` requires \`business.manage\` and updates those settings. The request includes \`legal_name\`, optional \`trading_name\`, \`company_number\`, \`vat_number\`, \`country_code\`, \`currency_code\` and \`timezone\`. Country and currency codes are uppercase ISO-style codes; timezone is an IANA timezone identifier supplied by the client. The server bounds and validates lengths and code shape but does not yet validate timezone names against a bundled timezone database.
+- \`GET /api/v1/businesses/{business_id}/locations\` requires \`business.read\` and lists locations, including inactive ones for administration.
+- \`POST /api/v1/businesses/{business_id}/locations\` requires \`business.manage\` and creates a location with \`name\`, optional \`location_code\` and an object-valued \`address\`.
+- \`PUT /api/v1/business-locations/{location_id}\` requires \`business.manage\` and updates a location's name, code, address and active state. Deactivation preserves historical records; locations are not hard-deleted through this API.
+
+Every mutation requires the exact configured \`Origin\`. Business and location mutations write append-only audit events in the same transaction. Location codes are unique within a tenant. The current schema stores address fields as JSON so country-specific address formats can be represented; the API currently enforces an object and an 8 KiB size limit.

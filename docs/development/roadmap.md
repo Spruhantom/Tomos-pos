@@ -43,6 +43,13 @@
 - [x] Initial business creation records its audit event in the provisioning transaction.
 - [ ] Add audit event coverage to each subsequent business mutation as those routes are implemented.
 
+## M2 — Business settings and locations
+- [x] Tenant-scoped business listing and legal/trading settings update.
+- [x] Tenant-scoped location listing, creation, update and deactivation.
+- [x] Permission enforcement, exact-Origin mutation checks and transactional audit events.
+- [x] Additional business creation within an existing tenant, with transactional audit event.
+- [ ] Country-specific address validation, timezone database validation, new-tenant provisioning and owner invitations.
+
 ## M3 — Web shell and branding
 - Next.js/TypeScript application.
 - Login and business selection.

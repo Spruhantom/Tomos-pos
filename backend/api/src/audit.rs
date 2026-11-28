@@ -7,6 +7,9 @@ use crate::auth::AuthContext;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuditEventType {
     BusinessCreated,
+    BusinessUpdated,
+    LocationCreated,
+    LocationUpdated,
     StaffInvited,
     StaffInvitationAccepted,
     StaffInvitationRevoked,
@@ -20,6 +23,9 @@ impl AuditEventType {
     const fn as_str(self) -> &'static str {
         match self {
             Self::BusinessCreated => "business.created",
+            Self::BusinessUpdated => "business.updated",
+            Self::LocationCreated => "location.created",
+            Self::LocationUpdated => "location.updated",
             Self::StaffInvited => "staff.invited",
             Self::StaffInvitationAccepted => "staff.invitation_accepted",
             Self::StaffInvitationRevoked => "staff.invitation_revoked",
@@ -35,6 +41,7 @@ impl AuditEventType {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuditEntityType {
     Business,
+    Location,
     Invitation,
     Membership,
     Role,
@@ -44,6 +51,7 @@ impl AuditEntityType {
     const fn as_str(self) -> &'static str {
         match self {
             Self::Business => "business",
+            Self::Location => "business_location",
             Self::Invitation => "staff_invitation",
             Self::Membership => "membership",
             Self::Role => "role",
@@ -85,6 +93,10 @@ mod tests {
     #[test]
     fn audit_vocabulary_is_stable_and_server_defined() {
         assert_eq!(AuditEventType::BusinessCreated.as_str(), "business.created");
+        assert_eq!(AuditEventType::BusinessUpdated.as_str(), "business.updated");
+        assert_eq!(AuditEventType::LocationCreated.as_str(), "location.created");
+        assert_eq!(AuditEventType::LocationUpdated.as_str(), "location.updated");
+        assert_eq!(AuditEntityType::Location.as_str(), "business_location");
         assert_eq!(AuditEntityType::Business.as_str(), "business");
         assert_eq!(AuditEventType::StaffInvited.as_str(), "staff.invited");
         assert_eq!(AuditEntityType::Invitation.as_str(), "staff_invitation");
