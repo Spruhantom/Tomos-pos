@@ -98,7 +98,10 @@ mod tests {
         );
         assert_eq!(AuditEntityType::Membership.as_str(), "membership");
         assert_eq!(AuditEventType::RoleCreated.as_str(), "role.created");
-        assert_eq!(AuditEventType::RolePermissionsChanged.as_str(), "role.permissions_changed");
+        assert_eq!(
+            AuditEventType::RolePermissionsChanged.as_str(),
+            "role.permissions_changed"
+        );
         assert_eq!(AuditEntityType::Role.as_str(), "role");
     }
 }
