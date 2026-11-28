@@ -74,22 +74,34 @@ impl PaymentAttempt {
     /// callback URL with a high-entropy per-attempt bearer token and HTTPS.
     pub fn apply_webhook(&mut self, event: &SoloWebhookEvent) -> Result<ApplyOutcome> {
         if event.id.trim().is_empty() {
-            return Err(SumUpError::InvalidRequest("webhook event ID is required".into()));
+            return Err(SumUpError::InvalidRequest(
+                "webhook event ID is required".into(),
+            ));
         }
         if event.event_type != SOLO_TRANSACTION_UPDATED {
-            return Err(SumUpError::InvalidRequest("unsupported webhook event type".into()));
+            return Err(SumUpError::InvalidRequest(
+                "unsupported webhook event type".into(),
+            ));
         }
         if event.payload.merchant_code != self.merchant_code {
-            return Err(SumUpError::InvalidRequest("webhook merchant does not match payment attempt".into()));
+            return Err(SumUpError::InvalidRequest(
+                "webhook merchant does not match payment attempt".into(),
+            ));
         }
         if event.payload.client_transaction_id != self.client_transaction_id {
-            return Err(SumUpError::InvalidRequest("webhook transaction does not match payment attempt".into()));
+            return Err(SumUpError::InvalidRequest(
+                "webhook transaction does not match payment attempt".into(),
+            ));
         }
 
         let outcome = match event.payload.status.as_str() {
             "successful" => PaymentOutcome::Successful,
             "failed" => PaymentOutcome::Failed,
-            _ => return Err(SumUpError::InvalidRequest("webhook status is not final or recognised".into())),
+            _ => {
+                return Err(SumUpError::InvalidRequest(
+                    "webhook status is not final or recognised".into(),
+                ))
+            }
         };
 
         let next_status = match outcome {
@@ -110,7 +122,9 @@ impl PaymentAttempt {
                 Ok(ApplyOutcome::AlreadyApplied(outcome))
             }
             AttemptStatus::Successful | AttemptStatus::Failed => Err(
-                SumUpError::InvalidRequest("conflicting final payment event; reconciliation required".into()),
+                SumUpError::InvalidRequest(
+                    "conflicting final payment event; reconciliation required".into(),
+                ),
             ),
         }
     }
