@@ -5,7 +5,7 @@ TomOS POS is a self-hosted, multi-business point-of-sale and business-management
 ## Project status
 
 **Stage:** Early development / pre-alpha  
-**Current milestone:** M2 — persistence, identity and tenancy  
+**Current milestone:** M3 — web management interface  
 **Default branch:** `main`  
 **Integration branch:** `develop`
 
@@ -23,7 +23,7 @@ This repository is the canonical home of the project. See [docs/](docs/) for the
 
 ## Planned architecture
 
-- Web application: React, TypeScript and Next.js.
+- Web application: React, TypeScript and Next.js (`frontend/web`).
 - API: Rust and Axum.
 - Database: PostgreSQL, accessed through SQLx.
 - Offline client: PWA, service worker and IndexedDB.
@@ -35,12 +35,23 @@ Requirements:
 
 - Rust stable toolchain and Cargo
 - Docker Engine and Docker Compose plugin
+- Node.js 22+ and npm for the web interface
 
 Copy `.env.example` to `.env`, then start the development database:
 
 ```sh
 docker compose up -d db
 ```
+
+Run the web interface in a second terminal:
+
+```sh
+cd frontend/web
+npm install
+npm run dev
+```
+
+Configure a same-origin reverse proxy for `/api/v1/*` to the Rust API. See [web interface setup](frontend/web/README.md).
 
 Run the API from the repository root:
 
