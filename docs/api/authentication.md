@@ -45,11 +45,11 @@ Set `COOKIE_SECURE=true` whenever the application is served over HTTPS. The samp
 
 ## Current limitations — not production ready
 
-- Staff account administration and role-assignment endpoints are not implemented yet.
+- Staff invitation creation, listing and revocation are implemented; staff membership listing/deactivation and role-assignment endpoints are still outstanding.
 - CSRF/origin validation currently covers authentication state changes; all future cookie-authenticated mutation routes must apply the same origin validation or a stronger CSRF token strategy.
 - MFA, password reset, email verification and session/device management are outstanding.
-- Tenant-scoped authorisation middleware is implemented for the tenant context endpoint; all future business routes still need explicit permission middleware and tenant-scoped transactions.
-- Business registration and staff invitations after first-run setup are not implemented.
+- Tenant-scoped authorisation middleware is implemented for the tenant context and staff invitation endpoints; every future business route still needs explicit permission middleware and tenant-scoped transactions.
+- Ongoing business registration and tenant provisioning are not implemented; staff invitations are available after first-run setup.
 - The API currently has no web frontend.
 
 Do not expose this API to the public internet or use it for live business data until the outstanding security controls and integration tests are complete.
