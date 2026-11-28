@@ -42,6 +42,7 @@ export default function PosPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [lastSale, setLastSale] = useState<CheckoutResult | null>(null);
+  const [checkoutKey, setCheckoutKey] = useState("");
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -151,6 +152,8 @@ export default function PosPage() {
       setError("Cash received must cover the sale total."); return;
     }
     setBusy(true); setError(""); setNotice(""); setLastSale(null);
+    const idempotencyKey = checkoutKey || crypto.randomUUID();
+    if (!checkoutKey) setCheckoutKey(idempotencyKey);
     try {
       const result = await api<CheckoutResult>("pos/sales", {
         method: "POST", tenantId,
@@ -158,6 +161,7 @@ export default function PosPage() {
           business_id: businessId,
           location_id: locationId,
           till_session_id: till.id,
+          idempotency_key: idempotencyKey,
           items: cartLines.map((line) => ({ product_id: line.product.id, quantity: line.quantity })),
           payment_method: paymentMethod,
           ...(paymentMethod === "cash" ? { cash_received_minor: receivedMinor } : { terminal_reference: terminalReference || null }),
@@ -166,6 +170,7 @@ export default function PosPage() {
       setLastSale(result);
       setNotice(result.message);
       setCart({});
+      setCheckoutKey(crypto.randomUUID());
       setCashReceived("");
       setTerminalReference("");
     } catch (reason) { setError(messageOf(reason)); }
