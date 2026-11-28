@@ -1092,6 +1092,167 @@ pub async fn create_staff_invitation(
     .into_response()
 }
 
+
+#[derive(Serialize)]
+struct StaffInvitationListItem {
+    id: String,
+    email: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+    expires_at: chrono::DateTime<chrono::Utc>,
+    accepted_at: Option<chrono::DateTime<chrono::Utc>>,
+    revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+    status: &'static str,
+}
+
+#[derive(FromRow)]
+struct StaffInvitationListRow {
+    id: uuid::Uuid,
+    email_normalized: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+    expires_at: chrono::DateTime<chrono::Utc>,
+    accepted_at: Option<chrono::DateTime<chrono::Utc>>,
+    revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+pub async fn list_staff_invitations(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+) -> Response {
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff invitation list transaction failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "invitations could not be listed");
+        }
+    };
+
+    let rows = match sqlx::query_as::<_, StaffInvitationListRow>(
+        "SELECT id, email_normalized, created_at, expires_at, accepted_at, revoked_at \
+         FROM staff_invitations WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 200",
+    )
+    .bind(context.tenant_id)
+    .fetch_all(&mut *tx)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff invitation list query failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "invitations could not be listed");
+        }
+    };
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "staff invitation list transaction commit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "invitations could not be listed");
+    }
+
+    let now = chrono::Utc::now();
+    let invitations = rows.into_iter().map(|row| {
+        let status = if row.accepted_at.is_some() {
+            "accepted"
+        } else if row.revoked_at.is_some() {
+            "revoked"
+        } else if row.expires_at <= now {
+            "expired"
+        } else {
+            "pending"
+        };
+        StaffInvitationListItem {
+            id: row.id.to_string(),
+            email: row.email_normalized,
+            created_at: row.created_at,
+            expires_at: row.expires_at,
+            accepted_at: row.accepted_at,
+            revoked_at: row.revoked_at,
+            status,
+        }
+    }).collect::<Vec<_>>();
+
+    Json(serde_json::json!({ "invitations": invitations, "limit": 200 })).into_response()
+}
+
+#[derive(FromRow)]
+struct InvitationRevocationRow {
+    email_normalized: String,
+    accepted_at: Option<chrono::DateTime<chrono::Utc>>,
+    revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+    expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+pub async fn revoke_staff_invitation(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    axum::extract::Path(invitation_id): axum::extract::Path<uuid::Uuid>,
+    headers: HeaderMap,
+) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff invitation revocation transaction failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "invitation could not be revoked");
+        }
+    };
+
+    let invitation = match sqlx::query_as::<_, InvitationRevocationRow>(
+        "SELECT email_normalized, accepted_at, revoked_at, expires_at \
+         FROM staff_invitations WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+    )
+    .bind(invitation_id)
+    .bind(context.tenant_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(invitation)) => invitation,
+        Ok(None) => return error(StatusCode::NOT_FOUND, "invitation was not found"),
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff invitation revocation lookup failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "invitation could not be revoked");
+        }
+    };
+
+    if invitation.accepted_at.is_some() || invitation.revoked_at.is_some() || invitation.expires_at <= chrono::Utc::now() {
+        return error(StatusCode::CONFLICT, "only a pending invitation can be revoked");
+    }
+
+    if let Err(db_error) = sqlx::query(
+        "UPDATE staff_invitations SET revoked_at = now() \
+         WHERE id = $1 AND tenant_id = $2 AND accepted_at IS NULL AND revoked_at IS NULL",
+    )
+    .bind(invitation_id)
+    .bind(context.tenant_id)
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(%db_error, "staff invitation revocation update failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "invitation could not be revoked");
+    }
+
+    if let Err(db_error) = crate::audit::record_event(
+        &mut tx,
+        &context,
+        crate::audit::AuditEventType::StaffInvitationRevoked,
+        crate::audit::AuditEntityType::Invitation,
+        Some(invitation_id),
+        serde_json::json!({ "email": invitation.email_normalized }),
+    )
+    .await
+    {
+        tracing::error!(%db_error, "staff invitation revocation audit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "invitation could not be revoked");
+    }
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "staff invitation revocation commit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "invitation could not be revoked");
+    }
+
+    StatusCode::NO_CONTENT.into_response()
+}
+
 /// Accept an invitation for a new account. Existing-account linking and email
 /// delivery are intentionally separate follow-up work, not implicit here.
 pub async fn accept_staff_invitation(
