@@ -1,5 +1,6 @@
 use reqwest::{Client, Method, RequestBuilder, Response};
 use serde_json::Value;
+use std::time::Duration;
 
 use crate::{
     models::{CheckoutRequest, Reader, ReaderStatus},
@@ -17,6 +18,8 @@ impl SumUpClient {
     pub fn new(config: SumUpConfig) -> Result<Self> {
         let http = Client::builder()
             .user_agent(concat!("TomOS-POS/", env!("CARGO_PKG_VERSION")))
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(20))
             .build()?;
         Ok(Self { http, config })
     }
