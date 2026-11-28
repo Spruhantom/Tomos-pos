@@ -327,6 +327,23 @@ pub(crate) async fn webhook(
                         return StatusCode::SERVICE_UNAVAILABLE;
                     }
                 }
+            } else {
+                if let Err(error) = sqlx::query(
+                    "INSERT INTO audit_events \
+                     (tenant_id, actor_user_id, event_type, entity_type, entity_id, event_data) \
+                     VALUES ($1, NULL, 'payment.sumup.failed', 'payment_attempt', $2, \
+                       jsonb_build_object('provider_event_id', $3, 'failure_reason', $4))",
+                )
+                .bind(token_record.tenant_id)
+                .bind(attempt.id)
+                .bind(&event.id)
+                .bind(event.payload.failure_reason.as_deref())
+                .execute(&mut *tx)
+                .await
+                {
+                    tracing::error!(%error, attempt_id = %attempt.id, "SumUp failure audit event failed");
+                    return StatusCode::SERVICE_UNAVAILABLE;
+                }
             }
             if let Err(error) = tx.commit().await {
                 tracing::error!(%error, attempt_id = %attempt.id, "SumUp webhook commit failed");
