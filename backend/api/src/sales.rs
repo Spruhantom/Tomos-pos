@@ -274,3 +274,41 @@ mod tests {
         assert_eq!(sumup_currency_minor_unit("XYZ"), None);
     }
 }
+
+/// Read the current sale state after asynchronous payment processing.
+pub async fn get_sale(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    Path(sale_id): Path<uuid::Uuid>,
+) -> Result<Json<SaleResponse>, StatusCode> {
+    let mut tx = auth::begin_tenant_transaction(&state, &context)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "sale read transaction failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let sale = sqlx::query_as::<_, SaleRow>(
+        "SELECT id, amount_minor, currency, status FROM pos_sales WHERE id = $1",
+    )
+    .bind(sale_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, "sale read failed");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?
+    .ok_or(StatusCode::NOT_FOUND)?;
+
+    tx.commit().await.map_err(|error| {
+        tracing::error!(%error, "sale read transaction commit failed");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    Ok(Json(SaleResponse {
+        id: sale.id.to_string(),
+        amount_minor: sale.amount_minor,
+        currency: sale.currency,
+        status: sale.status,
+    }))
+}
