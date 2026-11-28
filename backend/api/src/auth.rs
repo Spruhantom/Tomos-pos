@@ -1107,10 +1107,11 @@ struct StaffInvitationListItem {
 struct StaffInvitationListRow {
     id: uuid::Uuid,
     email_normalized: String,
-    created_at: chrono::DateTime<chrono::Utc>,
-    expires_at: chrono::DateTime<chrono::Utc>,
-    accepted_at: Option<chrono::DateTime<chrono::Utc>>,
-    revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+    created_at: String,
+    expires_at: String,
+    accepted_at: Option<String>,
+    revoked_at: Option<String>,
+    status: String,
 }
 
 pub async fn list_staff_invitations(
@@ -1129,7 +1130,12 @@ pub async fn list_staff_invitations(
     };
 
     let rows = match sqlx::query_as::<_, StaffInvitationListRow>(
-        "SELECT id, email_normalized, created_at, expires_at, accepted_at, revoked_at \
+        "SELECT id, email_normalized, created_at::text AS created_at, \
+                expires_at::text AS expires_at, accepted_at::text AS accepted_at, \
+                revoked_at::text AS revoked_at, \
+                CASE WHEN accepted_at IS NOT NULL THEN 'accepted' \
+                     WHEN revoked_at IS NOT NULL THEN 'revoked' \
+                     WHEN expires_at <= now() THEN 'expired' ELSE 'pending' END AS status \
          FROM staff_invitations WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 200",
     )
     .bind(context.tenant_id)
@@ -1154,28 +1160,16 @@ pub async fn list_staff_invitations(
         );
     }
 
-    let now = chrono::Utc::now();
     let invitations = rows
         .into_iter()
-        .map(|row| {
-            let status = if row.accepted_at.is_some() {
-                "accepted"
-            } else if row.revoked_at.is_some() {
-                "revoked"
-            } else if row.expires_at <= now {
-                "expired"
-            } else {
-                "pending"
-            };
-            StaffInvitationListItem {
-                id: row.id.to_string(),
-                email: row.email_normalized,
-                created_at: row.created_at.to_rfc3339(),
-                expires_at: row.expires_at.to_rfc3339(),
-                accepted_at: row.accepted_at.map(|value| value.to_rfc3339()),
-                revoked_at: row.revoked_at.map(|value| value.to_rfc3339()),
-                status,
-            }
+        .map(|row| StaffInvitationListItem {
+            id: row.id.to_string(),
+            email: row.email_normalized,
+            created_at: row.created_at,
+            expires_at: row.expires_at,
+            accepted_at: row.accepted_at,
+            revoked_at: row.revoked_at,
+            status: row.status,
         })
         .collect::<Vec<_>>();
 
@@ -1185,9 +1179,7 @@ pub async fn list_staff_invitations(
 #[derive(FromRow)]
 struct InvitationRevocationRow {
     email_normalized: String,
-    accepted_at: Option<chrono::DateTime<chrono::Utc>>,
-    revoked_at: Option<chrono::DateTime<chrono::Utc>>,
-    expires_at: chrono::DateTime<chrono::Utc>,
+    is_pending: bool,
 }
 
 pub async fn revoke_staff_invitation(
@@ -1212,7 +1204,8 @@ pub async fn revoke_staff_invitation(
     };
 
     let invitation = match sqlx::query_as::<_, InvitationRevocationRow>(
-        "SELECT email_normalized, accepted_at, revoked_at, expires_at \
+        "SELECT email_normalized, \
+                (accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()) AS is_pending \
          FROM staff_invitations WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
     )
     .bind(invitation_id)
@@ -1231,10 +1224,7 @@ pub async fn revoke_staff_invitation(
         }
     };
 
-    if invitation.accepted_at.is_some()
-        || invitation.revoked_at.is_some()
-        || invitation.expires_at <= chrono::Utc::now()
-    {
+    if !invitation.is_pending {
         return error(
             StatusCode::CONFLICT,
             "only a pending invitation can be revoked",
