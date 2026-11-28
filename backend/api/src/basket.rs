@@ -127,7 +127,8 @@ pub async fn create_basket_sale(
             return Err(StatusCode::BAD_REQUEST);
         }
         let product = sqlx::query_as::<_, ProductSnapshot>(
-            "SELECT id, sku, name, unit_price_minor, currency, tax_rate_bps, is_active \\\n             FROM pos_products WHERE id = $1 FOR SHARE",
+            "SELECT id, sku, name, unit_price_minor, currency, tax_rate_bps, is_active \
+             FROM pos_products WHERE id = $1 FOR SHARE",
         )
         .bind(requested.product_id)
         .fetch_optional(&mut *tx)
@@ -174,7 +175,8 @@ pub async fn create_basket_sale(
     let currency = currency.ok_or(StatusCode::BAD_REQUEST)?;
 
     let sale_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO pos_sales (tenant_id, amount_minor, currency, created_by) \\\n         VALUES ($1, $2, $3, $4) RETURNING id",
+        "INSERT INTO pos_sales (tenant_id, amount_minor, currency, created_by) \
+         VALUES ($1, $2, $3, $4) RETURNING id",
     )
     .bind(context.tenant_id)
     .bind(gross_total)
@@ -190,7 +192,10 @@ pub async fn create_basket_sale(
     // Persist the immutable line snapshots in the same transaction as the sale.
     for line in &response_lines {
         sqlx::query(
-            "INSERT INTO pos_sale_lines \\\n             (tenant_id, sale_id, product_id, product_name, product_sku, quantity, \\\n              unit_price_minor, tax_rate_bps, net_minor, tax_minor, gross_minor) \\\n             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+            "INSERT INTO pos_sale_lines \
+             (tenant_id, sale_id, product_id, product_name, product_sku, quantity, \
+              unit_price_minor, tax_rate_bps, net_minor, tax_minor, gross_minor) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(context.tenant_id)
         .bind(sale_id)
