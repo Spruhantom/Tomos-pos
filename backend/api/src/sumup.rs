@@ -434,6 +434,37 @@ pub struct BusinessQuery {
     business_id: uuid::Uuid,
 }
 
+pub async fn connection_status(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    Query(query): Query<BusinessQuery>,
+) -> Response {
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(err) => {
+            tracing::error!(%err, "SumUp status transaction failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "SumUp status could not be loaded");
+        }
+    };
+    match sqlx::query_as::<_, (String, Option<String>, Value)>(
+        "SELECT connection_status,merchant_code,available_merchants FROM sumup_business_accounts WHERE tenant_id=$1 AND business_id=$2",
+    )
+    .bind(context.tenant_id)
+    .bind(query.business_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some((status, merchant_code, merchants))) => Json(json!({
+            "status": status, "merchant_code": merchant_code, "merchants": merchants
+        })).into_response(),
+        Ok(None) => Json(json!({ "status": "not_connected", "merchant_code": null, "merchants": [] })).into_response(),
+        Err(err) => {
+            tracing::error!(%err, "SumUp status lookup failed");
+            error(StatusCode::INTERNAL_SERVER_ERROR, "SumUp status could not be loaded")
+        }
+    }
+}
+
 pub async fn list_readers(
     State(state): State<AuthState>,
     Extension(context): Extension<AuthContext>,
