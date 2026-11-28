@@ -58,6 +58,8 @@ CREATE POLICY ebay_oauth_states_access ON ebay_oauth_states
         OR state::text = current_setting('app.ebay_oauth_state', TRUE))
     WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', TRUE), '')::uuid);
 
+ALTER TABLE products ADD CONSTRAINT products_tenant_business_id_unique UNIQUE (tenant_id, business_id, id);
+
 CREATE TABLE ebay_inventory_mappings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
