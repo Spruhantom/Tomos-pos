@@ -271,6 +271,7 @@ export default function PosPage() {
           <label>Business<select value={businessId} onChange={(event) => setBusinessId(event.target.value)}>{businesses.map((business) => <option key={business.id} value={business.id}>{business.trading_name || business.legal_name}</option>)}</select></label>
           <label>Location<select value={locationId} onChange={(event) => setLocationId(event.target.value)}>{locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
         </div>
+        <button className="pos-secondary-button" disabled={busy || !businessId} onClick={() => void connectPayPal()}>Connect this business to PayPal</button>
       </header>
       {error && <p className="pos-alert error">{error}</p>}
       {notice && <p className="pos-alert success">{notice}</p>}
@@ -293,7 +294,6 @@ export default function PosPage() {
             <div className="pos-totals"><div><span>VAT included</span><b>{money(taxMinor, selectedBusiness?.currency_code)}</b></div><div className="pos-grand-total"><span>Total</span><b>{money(totalMinor, selectedBusiness?.currency_code)}</b></div></div>
             <div className="pos-payment">
               <p className="pos-eyebrow">PAYMENT METHOD</p>
-              <button className="pos-secondary-button" disabled={busy || !businessId} onClick={() => void connectPayPal()}>Connect this business to PayPal</button>
               <div className="pos-payment-options"><button className={paymentMethod === "cash" ? "selected" : ""} onClick={() => setPaymentMethod("cash")}>Cash</button><button className={paymentMethod === "card_terminal" ? "selected" : ""} onClick={() => setPaymentMethod("card_terminal")}>Card terminal</button><button className={paymentMethod === "paypal" ? "selected" : ""} onClick={() => setPaymentMethod("paypal")}>PayPal</button></div>
               {paymentMethod === "cash" ? <label>Cash received (£)<input inputMode="decimal" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} placeholder="0.00" /></label> : paymentMethod === "card_terminal" ?
                 <label>External terminal reference (optional)<input value={terminalReference} onChange={(event) => setTerminalReference(event.target.value)} placeholder="External terminal or lane reference" /><small>No terminal provider is connected yet. This request will remain pending until a provider confirms approval.</small></label> :
