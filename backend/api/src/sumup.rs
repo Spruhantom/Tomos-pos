@@ -25,6 +25,7 @@ pub(crate) struct CreatedAttempt {
 #[allow(dead_code)]
 pub(crate) struct NewAttempt<'a> {
     pub tenant_id: uuid::Uuid,
+    pub actor_user_id: uuid::Uuid,
     pub sale_id: uuid::Uuid,
     pub reader_id: &'a str,
     pub client_transaction_id: &'a str,
@@ -108,6 +109,20 @@ pub(crate) async fn create_attempt(
     .bind(callback_token_hash)
     .bind(input.tenant_id)
     .bind(id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO audit_events \
+         (tenant_id, actor_user_id, event_type, entity_type, entity_id, event_data) \
+         VALUES ($1, $2, 'payment.sumup.started', 'payment_attempt', $3, \
+           jsonb_build_object('sale_id', $4, 'reader_id', $5))",
+    )
+    .bind(input.tenant_id)
+    .bind(input.actor_user_id)
+    .bind(id)
+    .bind(input.sale_id)
+    .bind(input.reader_id)
     .execute(&mut *tx)
     .await?;
 
