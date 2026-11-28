@@ -374,7 +374,10 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         visible_sale_lines, 1,
         "tenant A must see only its own sale-line snapshot"
     );
-    assert_eq!(visible_cash, 1, "tenant A must see only its own cash payment");
+    assert_eq!(
+        visible_cash, 1,
+        "tenant A must see only its own cash payment"
+    );
 
     let visible: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM businesses")
         .fetch_one(&mut *tx)
