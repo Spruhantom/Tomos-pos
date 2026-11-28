@@ -59,7 +59,6 @@
 - [ ] End-to-end browser tests and accessibility review.
 - [x] Responsive till checkout shell with searchable catalogue, editable quantity controls, basket clearing and printable receipt view.
 - [ ] Installable PWA, service worker and offline application shell.
-- [ ] Installable PWA, service worker and offline application shell.
 
 ## M4 — Catalogue and inventory
 - [x] Tenant-scoped product catalogue schema with SKU/barcode uniqueness and tax-rate metadata.
@@ -73,7 +72,9 @@
 ## M5 — Sales and till operations
 - [x] Server-calculated itemised basket API with immutable product, price and VAT snapshots.
 - [x] VAT-inclusive line calculations using integer minor units and half-up tax rounding.
-- [ ] Basket editing/held sales and checkout UI.
+- [x] Editable till basket with quantity changes, item removal and clear-before-checkout.
+- [x] Till checkout interface for cash collection.
+- [ ] Server-persisted held sales and resume workflow.
 - [ ] Jurisdiction-specific tax rules and inclusive/exclusive pricing.
 - [x] Atomic cash tender collection with server-calculated change, immutable payment record, tenant RLS and audit event.
 - [x] Printable receipt view for completed cash sales.
