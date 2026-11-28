@@ -25,7 +25,6 @@ fn origin_is_allowed(headers: &HeaderMap, state: &AuthState) -> bool {
 struct PayPalConfig {
     client_id: String,
     client_secret: String,
-    partner_id: String,
     webhook_id: String,
     base_url: String,
     onboarding_return_url: String,
@@ -41,7 +40,6 @@ impl PayPalConfig {
         Ok(Self {
             client_id: required("PAYPAL_CLIENT_ID")?,
             client_secret: required("PAYPAL_CLIENT_SECRET")?,
-            partner_id: required("PAYPAL_PARTNER_ID")?,
             webhook_id: std::env::var("PAYPAL_WEBHOOK_ID").unwrap_or_default(),
             base_url: if sandbox {
                 "https://api-m.sandbox.paypal.com".to_string()
@@ -398,6 +396,7 @@ pub async fn create_order(
         .post(format!("{}/v2/checkout/orders", config.base_url))
         .bearer_auth(token)
         .header("PayPal-Auth-Assertion", assertion)
+        .header("PayPal-Request-Id", sale_id.to_string())
         .header("Content-Type", "application/json")
         .json(&order_body)
         .send()
@@ -501,6 +500,7 @@ pub async fn capture_order(
         .post(format!("{}/v2/checkout/orders/{}/capture", config.base_url, order_id))
         .bearer_auth(token)
         .header("PayPal-Auth-Assertion", assertion)
+        .header("PayPal-Request-Id", sale_id.to_string())
         .header("Content-Type", "application/json")
         .json(&json!({}))
         .send()
@@ -580,7 +580,7 @@ pub async fn webhook(
         "transmission_sig": header_value("paypal-transmission-sig"),
         "transmission_time": header_value("paypal-transmission-time"),
         "webhook_id": config.webhook_id,
-        "webhook_event": event
+        "webhook_event": event.clone()
     });
     let verified = match reqwest::Client::new()
         .post(format!("{}/v1/notifications/verify-webhook-signature", config.base_url))
