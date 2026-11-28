@@ -56,15 +56,16 @@ Do not advertise every SumUp model as Cloud API compatible. Query the official d
 - [x] Solo webhook event parsing, merchant/reference matching and terminal-state/idempotency rules in the Rust bridge.
 - [x] Axum callback endpoint with a 256-bit per-attempt token in the HTTPS return URL; only the SHA-256 token digest is persisted.
 - [x] Tenant-RLS-protected payment-attempt storage and conditional, idempotent final-state updates.
-- [ ] Connect attempt creation and checkout initiation to the sales workflow; add provider reconciliation.
-- [ ] POS checkout and sale-state integration.
+- [x] Basic tenant-scoped sale amount record and authenticated SumUp checkout initiation endpoint.
+- [x] Successful Solo callback atomically marks the matching unpaid sale paid and appends a payment audit event.
+- [ ] Full basket/product-line, tax snapshot and receipt integration; provider reconciliation.
 - [ ] Refund workflow and transaction reconciliation.
 - [ ] Android companion adapter for supported Solo Lite/Air SDK workflows.
 - [ ] Sandbox integration tests and physical-device acceptance tests.
 
 ## Current API implementation
 
-The API exposes `POST /api/v1/payments/sumup/webhook/{token}` for the Solo callback. A trusted checkout service calls `sumup::create_attempt` before starting the remote checkout and uses the returned `return_url`. The plaintext callback token is returned once and must not be logged or persisted. The webhook handler resolves the token digest, restores the tenant RLS context, verifies the merchant and client transaction ID, and conditionally records the final state. This receiver is not yet connected to a sale checkout route; a successful attempt does not yet update a sale record.
+The API exposes `POST /api/v1/payments/sumup/webhook/{token}` for the Solo callback. The first sales API also exposes `POST /api/v1/sales` to create an unpaid sale amount and `POST /api/v1/sales/{sale_id}/payments/sumup` to start a checkout. Both routes require an authenticated tenant membership with `sales.manage`. The initial implementation uses one server-configured reader and deployment-level SumUp credentials; it does not yet provide tenant-managed credentials or a reader-selection screen. A trusted checkout service calls `sumup::create_attempt` before starting the remote checkout and uses the returned `return_url`. The plaintext callback token is returned once and must not be logged or persisted. The webhook handler resolves the token digest, restores the tenant RLS context, verifies the merchant and client transaction ID, and conditionally records the final state. On a successful event it updates the linked unpaid sale to paid and writes an audit event in the same database transaction. Failed events leave the sale unpaid. A unique partial index prevents more than one pending SumUp attempt for the same sale.
 
 ## Sandbox and release gate
 
