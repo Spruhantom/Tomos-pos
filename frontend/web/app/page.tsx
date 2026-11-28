@@ -246,7 +246,7 @@ export default function Home() {
         <div><p className="eyebrow">TOMOS POS / MANAGEMENT</p><h2>{nav.find((item) => item.id === section)?.label}</h2></div>
         <div className="actions">
           <select aria-label="Select workspace" value={tenantId} onChange={(event) => setTenantId(event.target.value)}>{tenants.map((tenant) => <option key={tenant.tenant_id} value={tenant.tenant_id}>{tenant.display_name}</option>)}</select>
-          <span className="user-chip">{user.display_name}</span><button className="quiet" onClick={logout} disabled={busy}>Sign out</button>
+          <span className="user-chip">{user.display_name}</span><a className="quiet" href="/pos">Open checkout</a><button className="quiet" onClick={logout} disabled={busy}>Sign out</button>
         </div>
       </header>
       {error && <p className="alert error">{error}</p>}{notice && <p className="alert success">{notice}</p>}
