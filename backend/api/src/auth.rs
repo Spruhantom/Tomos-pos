@@ -2670,9 +2670,27 @@ pub async fn create_business(
     )
     .bind(context.tenant_id)
     .bind(request.legal_name.trim())
-    .bind(request.trading_name.as_deref().map(str::trim).filter(|value| !value.is_empty()))
-    .bind(request.company_number.as_deref().map(str::trim).filter(|value| !value.is_empty()))
-    .bind(request.vat_number.as_deref().map(str::trim).filter(|value| !value.is_empty()))
+    .bind(
+        request
+            .trading_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    )
+    .bind(
+        request
+            .company_number
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    )
+    .bind(
+        request
+            .vat_number
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    )
     .bind(request.country_code.trim())
     .bind(request.currency_code.trim())
     .bind(request.timezone.trim())
