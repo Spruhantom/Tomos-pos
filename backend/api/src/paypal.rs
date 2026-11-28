@@ -696,6 +696,22 @@ pub async fn capture_order(
             "PayPal sale could not be completed",
         );
     }
+    if let Err(err) = crate::audit::record_event(
+        &mut tx,
+        &context,
+        crate::audit::AuditEventType::PaypalPaymentCaptured,
+        crate::audit::AuditEntityType::Sale,
+        Some(sale_id),
+        json!({ "order_id": order_id }),
+    )
+    .await
+    {
+        tracing::error!(%err, "PayPal capture audit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal payment could not be recorded",
+        );
+    }
     if let Err(err) = tx.commit().await {
         tracing::error!(%err, "PayPal capture transaction commit failed");
         return error(
@@ -904,6 +920,22 @@ pub async fn cancel_order(
     .await
     {
         tracing::error!(%err, "PayPal sale cancellation failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal checkout could not be cancelled",
+        );
+    }
+    if let Err(err) = crate::audit::record_event(
+        &mut tx,
+        &context,
+        crate::audit::AuditEventType::PaypalPaymentCancelled,
+        crate::audit::AuditEntityType::Sale,
+        Some(sale_id),
+        json!({}),
+    )
+    .await
+    {
+        tracing::error!(%err, "PayPal cancellation audit failed");
         return error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "PayPal checkout could not be cancelled",
