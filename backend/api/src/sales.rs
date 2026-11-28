@@ -83,7 +83,10 @@ pub async fn create_sale(
 ) -> Result<(StatusCode, Json<SaleResponse>), StatusCode> {
     if request.amount_minor == 0
         || request.currency.len() != 3
-        || sumup_currency_minor_unit(&request.currency).is_none()
+        || !request
+            .currency
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase())
     {
         return Err(StatusCode::BAD_REQUEST);
     }
