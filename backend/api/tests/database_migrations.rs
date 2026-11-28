@@ -281,14 +281,13 @@ async fn audit_events_reject_update_delete_and_truncate() {
     pool.close().await;
 }
 
-
 #[tokio::test]
 async fn staff_invitation_rls_scopes_tenant_and_token_lookups() {
     let database_url = std::env::var("DATABASE_URL")
         .expect("DATABASE_URL must be set for database integration tests");
     let pool = PgPool::connect(&database_url)
         .await
-        .expect("test database should accept connections");
+        .expect("database should accept connections");
 
     sqlx::migrate!("../../database/migrations")
         .run(&pool)
@@ -296,8 +295,7 @@ async fn staff_invitation_rls_scopes_tenant_and_token_lookups() {
         .expect("all database migrations should apply");
 
     sqlx::query(
-        "DO $$ BEGIN CREATE ROLE tomos_pos_invitation_rls_test NOLOGIN; \\
-         EXCEPTION WHEN duplicate_object THEN NULL; END $$",
+        "DO $$ BEGIN CREATE ROLE tomos_pos_invitation_rls_test NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$",
     )
     .execute(&pool)
     .await
@@ -322,41 +320,35 @@ async fn staff_invitation_rls_scopes_tenant_and_token_lookups() {
     .await
     .expect("tenant B should be created");
 
-    let mut invitation_ids = Vec::new();
     for (tenant_id, suffix, token_hash) in [
         (tenant_a, "a", "invitation-token-hash-a"),
         (tenant_b, "b", "invitation-token-hash-b"),
     ] {
         let inviter_id: uuid::Uuid = sqlx::query_scalar(
-            "INSERT INTO users (email, email_normalized, password_hash, display_name) \\
-             VALUES ($1, $1, 'test-hash', 'Invitation inviter') RETURNING id",
+            "INSERT INTO users (email, email_normalized, password_hash, display_name) VALUES ($1, $1, 'test-hash', 'Invitation inviter') RETURNING id",
         )
         .bind(format!("inviter-{suffix}-{}@example.test", uuid::Uuid::new_v4()))
         .fetch_one(&pool)
         .await
         .expect("inviter account should be created");
         let role_id: uuid::Uuid = sqlx::query_scalar(
-            "INSERT INTO roles (tenant_id, role_key, display_name, is_system) \\
-             VALUES ($1, 'staff-test', 'Staff test', FALSE) RETURNING id",
+            "INSERT INTO roles (tenant_id, role_key, display_name, is_system) VALUES ($1, 'staff-test', 'Staff test', FALSE) RETURNING id",
         )
         .bind(tenant_id)
         .fetch_one(&pool)
         .await
         .expect("tenant staff role should be created");
-        let invitation_id: uuid::Uuid = sqlx::query_scalar(
-            "INSERT INTO staff_invitations \\
-             (tenant_id, email_normalized, role_id, invited_by, token_hash, expires_at) \\
-             VALUES ($1, $2, $3, $4, $5, now() + interval '7 days') RETURNING id",
+        sqlx::query(
+            "INSERT INTO staff_invitations (tenant_id, email_normalized, role_id, invited_by, token_hash, expires_at) VALUES ($1, $2, $3, $4, $5, now() + interval '7 days')",
         )
         .bind(tenant_id)
         .bind(format!("new-{suffix}-{}@example.test", uuid::Uuid::new_v4()))
         .bind(role_id)
         .bind(inviter_id)
         .bind(token_hash)
-        .fetch_one(&pool)
+        .execute(&pool)
         .await
         .expect("invitation should be created");
-        invitation_ids.push(invitation_id);
     }
 
     let mut tx = pool.begin().await.expect("RLS transaction should start");
