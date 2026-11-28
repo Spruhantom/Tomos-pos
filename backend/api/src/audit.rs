@@ -10,6 +10,7 @@ pub enum AuditEventType {
     StaffInvited,
     StaffInvitationAccepted,
     StaffInvitationRevoked,
+    StaffDeactivated,
 }
 
 impl AuditEventType {
@@ -19,6 +20,7 @@ impl AuditEventType {
             Self::StaffInvited => "staff.invited",
             Self::StaffInvitationAccepted => "staff.invitation_accepted",
             Self::StaffInvitationRevoked => "staff.invitation_revoked",
+            Self::StaffDeactivated => "staff.deactivated",
         }
     }
 }
