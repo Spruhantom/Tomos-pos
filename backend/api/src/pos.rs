@@ -524,6 +524,7 @@ pub struct CheckoutRequest {
     cash_received_minor: Option<i64>,
     terminal_reference: Option<String>,
     customer_id: Option<uuid::Uuid>,
+    reward_code: Option<String>,
 }
 
 #[derive(FromRow)]
@@ -593,6 +594,7 @@ pub async fn checkout(
         || request.items.iter().any(|item| !(1..=10_000).contains(&item.quantity))
         || !matches!(request.payment_method.as_str(), "cash" | "card_terminal" | "paypal" | "sumup_terminal")
         || request.terminal_reference.as_ref().is_some_and(|value| value.trim().len() > 120)
+        || request.reward_code.as_ref().is_some_and(|value| value.trim().len() > 64)
     {
         return error(StatusCode::BAD_REQUEST, "checkout details are invalid");
     }
@@ -831,10 +833,51 @@ pub async fn checkout(
         };
         line_snapshots.push((product, item.quantity, line_net, line_tax, gross));
     }
-    let total = match subtotal.checked_add(tax_total) {
+    let mut total = match subtotal.checked_add(tax_total) {
         Some(value) if value > 0 => value,
         _ => return error(StatusCode::BAD_REQUEST, "sale total must be greater than zero"),
     };
+    let mut discount_minor = 0_i64;
+    let mut discount_tax_minor = 0_i64;
+    let mut redemption_id: Option<uuid::Uuid> = None;
+    if let Some(code) = request.reward_code.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        let Some(customer_id) = request.customer_id else {
+            return error(StatusCode::BAD_REQUEST, "select the loyalty customer before applying a reward");
+        };
+        let reward = match sqlx::query_as::<_, (uuid::Uuid, i64)>(
+            "SELECT id,reward_value_minor FROM loyalty_redemptions \
+             WHERE tenant_id=$1 AND business_id=$2 AND customer_id=$3 AND reward_code=$4 AND status='issued' FOR UPDATE",
+        )
+        .bind(context.tenant_id)
+        .bind(request.business_id)
+        .bind(customer_id)
+        .bind(code)
+        .fetch_optional(&mut *tx)
+        .await
+        {
+            Ok(Some(value)) => value,
+            Ok(None) => return error(StatusCode::NOT_FOUND, "loyalty reward code is invalid, already used or belongs to another customer"),
+            Err(err) => {
+                tracing::error!(%err, "loyalty reward lookup failed");
+                return error(StatusCode::INTERNAL_SERVER_ERROR, "loyalty reward could not be applied");
+            }
+        };
+        if reward.1 > total {
+            return error(StatusCode::BAD_REQUEST, "loyalty reward value cannot exceed the sale total");
+        }
+        discount_minor = reward.1;
+        discount_tax_minor = ((i128::from(discount_minor) * i128::from(tax_total)
+            + i128::from(total) / 2) / i128::from(total)) as i64;
+        let discount_net = discount_minor - discount_tax_minor;
+        subtotal -= discount_net;
+        tax_total -= discount_tax_minor;
+        total -= discount_minor;
+        redemption_id = Some(reward.0);
+    }
+    if total <= 0 {
+        return error(StatusCode::BAD_REQUEST, "sale total must remain greater than zero after rewards");
+    }
+
     let is_cash = request.payment_method == "cash";
     let received = request.cash_received_minor.unwrap_or(0);
     if is_cash && received < total {
@@ -846,8 +889,8 @@ pub async fn checkout(
 
     let sale_status = if is_cash { "completed" } else { "awaiting_payment" };
     let sale_id = match sqlx::query_scalar::<_, uuid::Uuid>(
-        "INSERT INTO sales (tenant_id,business_id,location_id,till_session_id,cashier_user_id,sale_number,idempotency_key,status,currency_code,subtotal_minor,tax_minor,total_minor,completed_at,customer_id) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CASE WHEN $8 = 'completed' THEN now() ELSE NULL END,$13) RETURNING id",
+        "INSERT INTO sales (tenant_id,business_id,location_id,till_session_id,cashier_user_id,sale_number,idempotency_key,status,currency_code,subtotal_minor,tax_minor,total_minor,completed_at,discount_minor,discount_tax_minor,loyalty_redemption_id,customer_id) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CASE WHEN $8 = 'completed' THEN now() ELSE NULL END,$13,$14,$15,$16) RETURNING id",
     )
     .bind(context.tenant_id)
     .bind(request.business_id)
@@ -861,6 +904,9 @@ pub async fn checkout(
     .bind(subtotal)
     .bind(tax_total)
     .bind(total)
+    .bind(discount_minor)
+    .bind(discount_tax_minor)
+    .bind(redemption_id)
     .bind(request.customer_id)
     .fetch_one(&mut *tx)
     .await
@@ -871,6 +917,26 @@ pub async fn checkout(
             return error(StatusCode::INTERNAL_SERVER_ERROR, "sale could not be created");
         }
     };
+
+    if let Some(redemption_id) = redemption_id {
+        let redeemed = sqlx::query(
+            "UPDATE loyalty_redemptions SET status='redeemed',redeemed_sale_id=$3,redeemed_at=now() \
+             WHERE tenant_id=$1 AND id=$2 AND status='issued'",
+        )
+        .bind(context.tenant_id)
+        .bind(redemption_id)
+        .bind(sale_id)
+        .execute(&mut *tx)
+        .await;
+        match redeemed {
+            Ok(result) if result.rows_affected() == 1 => {}
+            Ok(_) => return error(StatusCode::CONFLICT, "loyalty reward has already been used"),
+            Err(err) => {
+                tracing::error!(%err, "loyalty reward redemption update failed");
+                return error(StatusCode::INTERNAL_SERVER_ERROR, "loyalty reward could not be applied");
+            }
+        }
+    }
 
     for (product, quantity, line_net, line_tax, gross) in line_snapshots {
         if let Err(db_error) = sqlx::query(
@@ -930,7 +996,7 @@ pub async fn checkout(
     };
     if let Err(db_error) = crate::audit::record_event(
         &mut tx, &context, event, AuditEntityType::Sale, Some(sale_id),
-        serde_json::json!({ "sale_number": counter, "total_minor": total, "currency_code": currency, "payment_method": request.payment_method.clone(), "payment_status": payment_status }),
+        serde_json::json!({ "sale_number": counter, "total_minor": total, "discount_minor": discount_minor, "currency_code": currency, "payment_method": request.payment_method.clone(), "payment_status": payment_status }),
     ).await {
         tracing::error!(%db_error, "sale audit failed");
         return error(StatusCode::INTERNAL_SERVER_ERROR, "sale could not be created");
