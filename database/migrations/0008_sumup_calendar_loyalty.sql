@@ -252,14 +252,19 @@ CREATE TABLE loyalty_redemptions (
     reward_code TEXT NOT NULL UNIQUE,
     points_redeemed BIGINT NOT NULL CHECK (points_redeemed > 0),
     reward_value_minor BIGINT NOT NULL CHECK (reward_value_minor > 0),
-    status TEXT NOT NULL DEFAULT 'issued' CHECK (status IN ('issued', 'redeemed', 'expired')),
+    status TEXT NOT NULL DEFAULT 'issued' CHECK (status IN ('issued', 'reserved', 'redeemed', 'expired')),
+    reserved_sale_id UUID,
     redeemed_sale_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     redeemed_at TIMESTAMPTZ,
     UNIQUE (tenant_id, id),
     FOREIGN KEY (tenant_id, business_id, customer_id)
         REFERENCES pos_customers(tenant_id, business_id, id) ON DELETE RESTRICT,
-    FOREIGN KEY (tenant_id, redeemed_sale_id) REFERENCES sales(tenant_id, id) ON DELETE RESTRICT
+    FOREIGN KEY (tenant_id, reserved_sale_id) REFERENCES sales(tenant_id, id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, redeemed_sale_id) REFERENCES sales(tenant_id, id) ON DELETE RESTRICT,
+    CHECK ((status = 'reserved' AND reserved_sale_id IS NOT NULL AND redeemed_sale_id IS NULL)
+        OR (status = 'redeemed' AND reserved_sale_id IS NULL AND redeemed_sale_id IS NOT NULL)
+        OR (status IN ('issued', 'expired') AND reserved_sale_id IS NULL AND redeemed_sale_id IS NULL))
 );
 ALTER TABLE sales
     ADD COLUMN discount_minor BIGINT NOT NULL DEFAULT 0 CHECK (discount_minor >= 0),
