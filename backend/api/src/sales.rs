@@ -50,6 +50,15 @@ pub struct PaymentStartedResponse {
     pub provider_message: &'static str,
 }
 
+fn sumup_currency_minor_unit(currency: &str) -> Option<u8> {
+    match currency {
+        "CLP" => Some(0),
+        "BRL" | "CHF" | "COP" | "CZK" | "DKK" | "EUR" | "GBP" | "HRK" | "HUF"
+        | "NOK" | "PLN" | "RON" | "SEK" | "USD" => Some(2),
+        _ => None,
+    }
+}
+
 fn sumup_client() -> Result<(SumUpClient, String, String), StatusCode> {
     let api_key = std::env::var("SUMUP_API_KEY").map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let affiliate_key =
@@ -73,10 +82,7 @@ pub async fn create_sale(
 ) -> Result<(StatusCode, Json<SaleResponse>), StatusCode> {
     if request.amount_minor == 0
         || request.currency.len() != 3
-        || !request
-            .currency
-            .bytes()
-            .all(|byte| byte.is_ascii_uppercase())
+        || sumup_currency_minor_unit(&request.currency).is_none()
     {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -187,7 +193,7 @@ pub async fn start_sumup_payment(
         client_transaction_id,
         amount: Money {
             currency: sale.currency,
-            minor_unit: 2,
+            minor_unit: sumup_currency_minor_unit(&sale.currency).ok_or(StatusCode::BAD_REQUEST)?,
             value: sale.amount_minor as u64,
         },
         return_url: attempt.return_url,
@@ -236,4 +242,17 @@ pub async fn start_sumup_payment(
             provider_message: "Reader checkout accepted; awaiting final payment result",
         }),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sumup_currency_minor_unit;
+
+    #[test]
+    fn supported_sumup_currencies_use_their_minor_unit_exponent() {
+        assert_eq!(sumup_currency_minor_unit("GBP"), Some(2));
+        assert_eq!(sumup_currency_minor_unit("EUR"), Some(2));
+        assert_eq!(sumup_currency_minor_unit("CLP"), Some(0));
+        assert_eq!(sumup_currency_minor_unit("XYZ"), None);
+    }
 }
