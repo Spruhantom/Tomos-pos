@@ -1,9 +1,6 @@
 -- M4/M5 foundation: catalogue, till sessions, immutable sales and tender records.
 -- Money is stored in integer minor units (pence for GBP); no cardholder data is stored.
 
-ALTER TABLE permissions
-    ADD CONSTRAINT permissions_permission_key_unique UNIQUE (permission_key);
-
 INSERT INTO permissions (permission_key, description) VALUES
     ('pos.catalog.read', 'View the product catalogue'),
     ('pos.catalog.manage', 'Create and manage products'),
@@ -70,6 +67,14 @@ CREATE UNIQUE INDEX till_sessions_one_open_per_location
     ON till_sessions(tenant_id, location_id) WHERE status = 'open';
 CREATE INDEX till_sessions_business_opened_idx
     ON till_sessions(tenant_id, business_id, opened_at DESC);
+
+CREATE TABLE business_sale_counters (
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
+    business_id UUID NOT NULL,
+    next_number BIGINT NOT NULL DEFAULT 1 CHECK (next_number > 0),
+    PRIMARY KEY (tenant_id, business_id),
+    FOREIGN KEY (tenant_id, business_id) REFERENCES businesses(tenant_id, id) ON DELETE RESTRICT
+);
 
 CREATE TABLE sales (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
