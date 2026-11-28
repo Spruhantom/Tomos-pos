@@ -10,6 +10,16 @@ pub enum AuditEventType {
     BusinessUpdated,
     LocationCreated,
     LocationUpdated,
+    ProductCreated,
+    TillOpened,
+    TillClosed,
+    CashMovementRecorded,
+    SaleCreated,
+    CardPaymentInitiated,
+    PaypalPaymentInitiated,
+    PaypalPaymentCaptured,
+    PaypalPaymentCancelled,
+    PaymentTenderCreated,
     StaffInvited,
     StaffInvitationAccepted,
     StaffInvitationRevoked,
@@ -26,6 +36,16 @@ impl AuditEventType {
             Self::BusinessUpdated => "business.updated",
             Self::LocationCreated => "location.created",
             Self::LocationUpdated => "location.updated",
+            Self::ProductCreated => "product.created",
+            Self::TillOpened => "till.opened",
+            Self::TillClosed => "till.closed",
+            Self::CashMovementRecorded => "till.cash_movement_recorded",
+            Self::SaleCreated => "sale.created",
+            Self::CardPaymentInitiated => "payment.card_initiated",
+            Self::PaypalPaymentInitiated => "payment.paypal_initiated",
+            Self::PaypalPaymentCaptured => "payment.paypal_captured",
+            Self::PaypalPaymentCancelled => "payment.paypal_cancelled",
+            Self::PaymentTenderCreated => "payment.tender_created",
             Self::StaffInvited => "staff.invited",
             Self::StaffInvitationAccepted => "staff.invitation_accepted",
             Self::StaffInvitationRevoked => "staff.invitation_revoked",
@@ -42,6 +62,11 @@ impl AuditEventType {
 pub enum AuditEntityType {
     Business,
     Location,
+    Product,
+    TillSession,
+    CashMovement,
+    Sale,
+    Tender,
     Invitation,
     Membership,
     Role,
@@ -52,6 +77,11 @@ impl AuditEntityType {
         match self {
             Self::Business => "business",
             Self::Location => "business_location",
+            Self::Product => "product",
+            Self::TillSession => "till_session",
+            Self::CashMovement => "till_cash_movement",
+            Self::Sale => "sale",
+            Self::Tender => "payment_tender",
             Self::Invitation => "staff_invitation",
             Self::Membership => "membership",
             Self::Role => "role",
@@ -97,6 +127,17 @@ mod tests {
         assert_eq!(AuditEventType::LocationCreated.as_str(), "location.created");
         assert_eq!(AuditEventType::LocationUpdated.as_str(), "location.updated");
         assert_eq!(AuditEntityType::Location.as_str(), "business_location");
+        assert_eq!(AuditEventType::ProductCreated.as_str(), "product.created");
+        assert_eq!(AuditEventType::SaleCreated.as_str(), "sale.created");
+        assert_eq!(AuditEventType::PaypalPaymentInitiated.as_str(), "payment.paypal_initiated");
+        assert_eq!(AuditEventType::PaypalPaymentCaptured.as_str(), "payment.paypal_captured");
+        assert_eq!(AuditEventType::PaypalPaymentCancelled.as_str(), "payment.paypal_cancelled");
+        assert_eq!(AuditEntityType::Sale.as_str(), "sale");
+        assert_eq!(AuditEntityType::Tender.as_str(), "payment_tender");
+        assert_eq!(
+            AuditEventType::PaymentTenderCreated.as_str(),
+            "payment.tender_created"
+        );
         assert_eq!(AuditEntityType::Business.as_str(), "business");
         assert_eq!(AuditEventType::StaffInvited.as_str(), "staff.invited");
         assert_eq!(AuditEntityType::Invitation.as_str(), "staff_invitation");

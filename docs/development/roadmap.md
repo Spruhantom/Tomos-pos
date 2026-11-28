@@ -61,21 +61,24 @@
 - [ ] Installable PWA, service worker and offline application shell.
 
 ## M4 — Catalogue and inventory
-- Products, services, categories, variants and barcodes.
-- Stock locations and immutable stock movements.
-- Suppliers, purchase orders and goods receiving.
+- [x] Initial tenant-scoped product catalogue with SKU, barcode, VAT rate and integer minor-unit prices.
+- [ ] Services, categories, variants, stock locations and immutable stock movements.
+- [ ] Suppliers, purchase orders and goods receiving.
 
 ## M5 — Sales and till operations
-- Basket and checkout workflow.
-- Tax calculation snapshots.
-- Till sessions, cash movements and receipts.
-- Refunds, reversals and held sales.
+- [x] Responsive POS checkout shell with product search, basket and quantity controls.
+- [x] VAT-inclusive integer tax calculation and immutable sale-line snapshots.
+- [x] Till opening, paid-in/out cash movements and cash-up variance.
+- [x] Cash checkout with change calculation and transactional tender capture.
+- [x] Card-terminal pending payment intent; provider confirmation remains outstanding.
+- [ ] Split tender, discounts, held sales, receipts, refunds/reversals and inventory decrement.
 
 ## M6 — Payment adapters
-- Cash and bank transfer states.
-- Sandbox integration for selected card/payment-link providers.
-- Signed webhook processing, idempotency and reconciliation.
-- Provider and terminal capability matrix.
+- [x] Cash tender capture and till reconciliation foundation.
+- [ ] Bank transfer states.
+- [ ] Select and implement a sandbox card-terminal provider adapter.
+- [ ] Signed terminal/webhook processing, idempotency and reconciliation.
+- [ ] Provider and terminal capability matrix.
 
 ## M7 — Offline checkout
 - PWA service worker and IndexedDB.
