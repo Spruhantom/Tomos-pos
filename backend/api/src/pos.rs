@@ -920,12 +920,16 @@ pub async fn checkout(
 
     if let Some(redemption_id) = redemption_id {
         let redeemed = sqlx::query(
-            "UPDATE loyalty_redemptions SET status='redeemed',redeemed_sale_id=$3,redeemed_at=now() \
+            "UPDATE loyalty_redemptions SET status=CASE WHEN $4='completed' THEN 'redeemed' ELSE 'reserved' END, \
+             reserved_sale_id=CASE WHEN $4='completed' THEN NULL ELSE $3 END, \
+             redeemed_sale_id=CASE WHEN $4='completed' THEN $3 ELSE NULL END, \
+             redeemed_at=CASE WHEN $4='completed' THEN now() ELSE NULL END \
              WHERE tenant_id=$1 AND id=$2 AND status='issued'",
         )
         .bind(context.tenant_id)
         .bind(redemption_id)
         .bind(sale_id)
+        .bind(sale_status)
         .execute(&mut *tx)
         .await;
         match redeemed {
