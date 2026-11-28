@@ -354,8 +354,8 @@ async fn refreshed_token(
             tracing::error!(%err, "SumUp token lookup transaction failed");
             error(StatusCode::INTERNAL_SERVER_ERROR, "SumUp account could not be loaded")
         })?;
-    let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT refresh_token_enc, merchant_code FROM sumup_business_accounts \
+    let row = sqlx::query_as::<_, (Option<String>, String, String, Option<chrono::DateTime<chrono::Utc>>)>(
+        "SELECT access_token_enc,refresh_token_enc,merchant_code,token_expires_at FROM sumup_business_accounts \
          WHERE tenant_id=$1 AND business_id=$2 AND connection_status='connected' AND merchant_code IS NOT NULL",
     )
     .bind(context.tenant_id)
@@ -371,7 +371,14 @@ async fn refreshed_token(
         tracing::error!(%err, "SumUp token lookup commit failed");
         error(StatusCode::INTERNAL_SERVER_ERROR, "SumUp account could not be loaded")
     })?;
-    let refresh_token = integration_crypto::decrypt(&row.0)
+    if let (Some(access_enc), Some(expires_at)) = (&row.0, row.3) {
+        if expires_at > chrono::Utc::now() + chrono::Duration::seconds(60) {
+            let access = integration_crypto::decrypt(access_enc)
+                .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "SumUp credentials cannot be decrypted"))?;
+            return Ok((access, row.2));
+        }
+    }
+    let refresh_token = integration_crypto::decrypt(&row.1)
         .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "SumUp credentials cannot be decrypted"))?;
     let (client_id, client_secret) = (
         config_value("SUMUP_CLIENT_ID").map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "SumUp OAuth is not configured"))?,
@@ -436,7 +443,7 @@ async fn refreshed_token(
         tracing::error!(%err, "SumUp token persistence commit failed");
         error(StatusCode::INTERNAL_SERVER_ERROR, "SumUp credentials could not be refreshed")
     })?;
-    Ok((access_token.to_string(), row.1))
+    Ok((access_token.to_string(), row.2))
 }
 
 #[derive(Deserialize)]
