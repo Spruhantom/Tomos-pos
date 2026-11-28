@@ -269,6 +269,33 @@ pub(crate) async fn webhook(
     .await
     {
         Ok(result) if result.rows_affected() == 1 => {
+            if outcome == PaymentOutcome::Successful {
+                // The sale and payment attempt settle in the same transaction.
+                // A zero-row update means the sale was already paid or voided;
+                // retain the provider success for reconciliation, but never
+                // transition a non-unpaid sale back into another state.
+                match sqlx::query(
+                    "UPDATE pos_sales SET status = 'paid', paid_at = now(), updated_at = now() \
+                     WHERE id = (SELECT sale_id FROM sumup_payment_attempts WHERE id = $1) \
+                       AND status = 'unpaid'",
+                )
+                .bind(attempt.id)
+                .execute(&mut *tx)
+                .await
+                {
+                    Ok(sale_result) if sale_result.rows_affected() == 1 => {}
+                    Ok(_) => {
+                        tracing::error!(
+                            attempt_id = %attempt.id,
+                            "SumUp payment succeeded but sale was not unpaid; manual reconciliation required"
+                        );
+                    }
+                    Err(error) => {
+                        tracing::error!(%error, attempt_id = %attempt.id, "sale payment update failed");
+                        return StatusCode::SERVICE_UNAVAILABLE;
+                    }
+                }
+            }
             if let Err(error) = tx.commit().await {
                 tracing::error!(%error, attempt_id = %attempt.id, "SumUp webhook commit failed");
                 return StatusCode::SERVICE_UNAVAILABLE;
