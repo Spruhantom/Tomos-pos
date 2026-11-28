@@ -42,6 +42,7 @@ export default function Home() {
   const [productSearch, setProductSearch] = useState("");
   const [tendered, setTendered] = useState("");
   const [checkoutSaleId, setCheckoutSaleId] = useState("");
+  const [pendingSaleLines, setPendingSaleLines] = useState<BasketLine[]>([]);
   const [receipt, setReceipt] = useState<CashReceipt | null>(null);
   const [receiptLines, setReceiptLines] = useState<BasketLine[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,6 +150,7 @@ export default function Home() {
   const formatMoney = (minor: number, currency = basketCurrency) => new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(minor / 100);
 
   function addToBasket(product: Product) {
+    if (checkoutSaleId) return;
     if (basket.length && basket[0].product.currency !== product.currency) {
       setError("A basket cannot contain products in different currencies.");
       return;
@@ -164,6 +166,7 @@ export default function Home() {
   }
 
   function setBasketQuantity(productId: string, quantity: number) {
+    if (checkoutSaleId) return;
     setBasket((old) => quantity <= 0 ? old.filter((line) => line.product.id !== productId) : old.map((line) => line.product.id === productId ? { ...line, quantity: Math.min(10000, quantity) } : line));
   }
 
@@ -177,22 +180,23 @@ export default function Home() {
     setBusy(true); setError(""); setNotice("");
     try {
       let saleId = checkoutSaleId;
-      let amountMinor = basketTotal;
       if (!saleId) {
-        const sale = await api<{ id: string; amount_minor: number; currency: string }>("sales/basket", {
+        const sale = await api<{ id: string; amount_minor: number; currency: string; lines: Array<{ product_id: string; name: string; sku: string | null; quantity: number; unit_price_minor: number; tax_rate_bps: number }> }>("sales/basket", {
           method: "POST", tenantId,
           body: { lines: basket.map((line) => ({ product_id: line.product.id, quantity: line.quantity })) },
         });
         saleId = sale.id;
-        amountMinor = sale.amount_minor;
+        const snapshots = sale.lines.map((line) => ({ product: { id: line.product_id, name: line.name, sku: line.sku, unit_price_minor: line.unit_price_minor, currency: sale.currency, tax_rate_bps: line.tax_rate_bps, is_active: true }, quantity: line.quantity }));
+        setPendingSaleLines(snapshots);
         setCheckoutSaleId(saleId);
       }
       const paid = await api<CashReceipt>("sales/" + saleId + "/payments/cash", {
         method: "POST", tenantId, body: { tendered_minor: tenderedMinor },
       });
       setReceipt(paid);
-      setReceiptLines(basket);
+      setReceiptLines(pendingSaleLines.length ? pendingSaleLines : basket);
       setBasket([]);
+      setPendingSaleLines([]);
       setTendered("");
       setCheckoutSaleId("");
       setNotice("Cash payment recorded. Change due: " + formatMoney(paid.change_minor, paid.currency));
@@ -354,7 +358,7 @@ export default function Home() {
             <Input label="Search products" value={productSearch} onChange={setProductSearch} />
             <div className="product-grid">
               {products.filter((product) => (product.name + " " + (product.sku ?? "")).toLowerCase().includes(productSearch.toLowerCase())).map((product) =>
-                <button className="product-tile" key={product.id} onClick={() => addToBasket(product)} disabled={busy}>
+                <button className="product-tile" key={product.id} onClick={() => addToBasket(product)} disabled={busy || !!checkoutSaleId}>
                   <b>{product.name}</b><small>{product.sku || "No SKU"} · {product.tax_rate_bps / 100}% VAT</small><strong>{formatMoney(product.unit_price_minor, product.currency)}</strong>
                 </button>
               )}
@@ -365,7 +369,7 @@ export default function Home() {
             <p className="eyebrow">CURRENT SALE</p><h3>Basket</h3>
             {basket.map((line) => <div className="basket-row" key={line.product.id}>
               <div className="basket-description"><b>{line.product.name}</b><small>{formatMoney(line.product.unit_price_minor, line.product.currency)} each</small></div>
-              <div className="quantity-controls"><button aria-label={"Remove one " + line.product.name} onClick={() => setBasketQuantity(line.product.id, line.quantity - 1)}>−</button><span>{line.quantity}</span><button aria-label={"Add one " + line.product.name} onClick={() => setBasketQuantity(line.product.id, line.quantity + 1)}>+</button><button className="remove-line" aria-label={"Remove " + line.product.name} onClick={() => setBasketQuantity(line.product.id, 0)}>×</button></div>
+              <div className="quantity-controls"><button aria-label={"Remove one " + line.product.name} onClick={() => setBasketQuantity(line.product.id, line.quantity - 1)} disabled={!!checkoutSaleId}>−</button><span>{line.quantity}</span><button aria-label={"Add one " + line.product.name} onClick={() => setBasketQuantity(line.product.id, line.quantity + 1)} disabled={!!checkoutSaleId}>+</button><button className="remove-line" aria-label={"Remove " + line.product.name} onClick={() => setBasketQuantity(line.product.id, 0)} disabled={!!checkoutSaleId}>×</button></div>
               <b>{formatMoney(line.product.unit_price_minor * line.quantity, line.product.currency)}</b>
             </div>)}
             {!basket.length && <p className="muted">Your basket is empty. Select products to begin.</p>}
