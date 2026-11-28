@@ -251,8 +251,8 @@ export default function PosPage() {
               <p className="pos-eyebrow">PAYMENT METHOD</p>
               <div className="pos-payment-options"><button className={paymentMethod === "cash" ? "selected" : ""} onClick={() => setPaymentMethod("cash")}>Cash</button><button className={paymentMethod === "card_terminal" ? "selected" : ""} onClick={() => setPaymentMethod("card_terminal")}>Card terminal</button></div>
               {paymentMethod === "cash" ? <label>Cash received (£)<input inputMode="decimal" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} placeholder="0.00" /></label> :
-                <label>Terminal reference (optional)<input value={terminalReference} onChange={(event) => setTerminalReference(event.target.value)} placeholder="Terminal or lane reference" /><small>Card payments remain pending until a connected terminal provider confirms approval.</small></label>}
-              <button className="pos-pay-button" onClick={() => void takePayment()} disabled={busy || !cartLines.length}>{busy ? "Processing…" : paymentMethod === "cash" ? "Complete cash sale" : "Start card terminal payment"}</button>
+                <label>External terminal reference (optional)<input value={terminalReference} onChange={(event) => setTerminalReference(event.target.value)} placeholder="External terminal or lane reference" /><small>No terminal provider is connected yet. This request will remain pending until a provider confirms approval.</small></label>}
+              <button className="pos-pay-button" onClick={() => void takePayment()} disabled={busy || !cartLines.length}>{busy ? "Processing…" : paymentMethod === "cash" ? "Complete cash sale" : "Create pending card payment"}</button>
               <button className="pos-clear" disabled={busy || !cartLines.length} onClick={() => setCart({})}>Clear basket</button>
             </div>
             <div className="pos-till-tools">
