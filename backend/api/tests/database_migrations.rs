@@ -1,5 +1,28 @@
 use sqlx::PgPool;
 
+async fn acquire_database_test_lock(
+    pool: &PgPool,
+) -> sqlx::pool::PoolConnection<sqlx::Postgres> {
+    let mut connection = pool
+        .acquire()
+        .await
+        .expect("database test lock connection should be acquired");
+    sqlx::query("SELECT pg_advisory_lock(731942, 1)")
+        .execute(&mut *connection)
+        .await
+        .expect("database integration tests should be serialized");
+    connection
+}
+
+async fn release_database_test_lock(
+    mut connection: sqlx::pool::PoolConnection<sqlx::Postgres>,
+) {
+    sqlx::query("SELECT pg_advisory_unlock(731942, 1)")
+        .execute(&mut *connection)
+        .await
+        .expect("database integration test lock should be released");
+}
+
 #[tokio::test]
 async fn migrations_create_identity_schema_and_tenant_policies() {
     let database_url = std::env::var("DATABASE_URL")
@@ -7,6 +30,7 @@ async fn migrations_create_identity_schema_and_tenant_policies() {
     let pool = PgPool::connect(&database_url)
         .await
         .expect("test database should accept connections");
+    let test_lock = acquire_database_test_lock(&pool).await;
 
     sqlx::migrate!("../../database/migrations")
         .run(&pool)
@@ -55,6 +79,7 @@ async fn migrations_create_identity_schema_and_tenant_policies() {
 
     assert_eq!(protected_tables, 5, "tenant-owned tables must enable RLS");
 
+    release_database_test_lock(test_lock).await;
     pool.close().await;
 }
 
@@ -65,6 +90,7 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     let pool = PgPool::connect(&database_url)
         .await
         .expect("test database should accept connections");
+    let test_lock = acquire_database_test_lock(&pool).await;
 
     sqlx::migrate!("../../database/migrations")
         .run(&pool)
@@ -190,6 +216,7 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     tx.rollback()
         .await
         .expect("RLS test transaction should roll back");
+    release_database_test_lock(test_lock).await;
     pool.close().await;
 }
 
@@ -200,6 +227,7 @@ async fn audit_events_reject_update_delete_and_truncate() {
     let pool = PgPool::connect(&database_url)
         .await
         .expect("test database should accept connections");
+    let test_lock = acquire_database_test_lock(&pool).await;
 
     sqlx::migrate!("../../database/migrations")
         .run(&pool)
@@ -278,6 +306,7 @@ async fn audit_events_reject_update_delete_and_truncate() {
     tx.rollback()
         .await
         .expect("audit test transaction should roll back");
+    release_database_test_lock(test_lock).await;
     pool.close().await;
 }
 
@@ -288,6 +317,7 @@ async fn staff_invitation_rls_scopes_tenant_and_token_lookups() {
     let pool = PgPool::connect(&database_url)
         .await
         .expect("database should accept connections");
+    let test_lock = acquire_database_test_lock(&pool).await;
 
     sqlx::migrate!("../../database/migrations")
         .run(&pool)
@@ -408,5 +438,6 @@ async fn staff_invitation_rls_scopes_tenant_and_token_lookups() {
     tx.rollback()
         .await
         .expect("RLS transaction should roll back");
+    release_database_test_lock(test_lock).await;
     pool.close().await;
 }
