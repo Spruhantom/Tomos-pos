@@ -242,7 +242,7 @@ pub async fn oauth_callback(
         return Redirect::to(&format!("{app_origin}/integrations?sumup=no_merchant")).into_response();
     }
     let merchant_code = if merchants.len() == 1 {
-        merchants[0]["merchant_code"].as_str()
+        merchants[0]["merchant_code"].as_str().map(str::to_string)
     } else {
         None
     };
@@ -263,7 +263,7 @@ pub async fn oauth_callback(
     )
     .bind(tenant_id)
     .bind(business_id)
-    .bind(merchant_code)
+    .bind(merchant_code.as_deref())
     .bind(access_enc)
     .bind(refresh_enc)
     .bind(expires_in)
@@ -566,7 +566,6 @@ pub async fn start_reader_checkout(
         Ok(value) if value.starts_with("https://") => value,
         _ => return error(StatusCode::SERVICE_UNAVAILABLE, "SumUp HTTPS webhook URL is not configured"),
     };
-    let client_transaction_id = uuid::Uuid::new_v4().to_string();
     let webhook_token = uuid::Uuid::new_v4().to_string();
     let webhook_hash = hex::encode(Sha256::digest(webhook_token.as_bytes()));
     let return_url = format!("{webhook_base}?token={webhook_token}");
@@ -576,7 +575,7 @@ pub async fn start_reader_checkout(
         "return_url": return_url,
     });
     let created = match reqwest::Client::new()
-        .post(format!("{API_BASE}/v0.1/merchants/{merchant}/readers/{}/checkout", request.reader_id))
+        .post(format!("{API_BASE}/v0.1/merchants/{merchant}/readers/{}/checkout", urlencoding::encode(&request.reader_id)))
         .bearer_auth(token)
         .json(&body)
         .send()
