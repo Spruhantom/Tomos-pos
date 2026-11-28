@@ -263,8 +263,21 @@ pub async fn start_sumup_payment(
                 .commit()
                 .await
                 .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            return Err(StatusCode::BAD_GATEWAY);
         }
-        return Err(StatusCode::BAD_GATEWAY);
+
+        // The provider may have accepted the request before the connection
+        // failed. Return the attempt ID and explicitly tell the client not to
+        // retry; the reconciliation worker will resolve its final state.
+        return Ok((
+            StatusCode::ACCEPTED,
+            Json(PaymentStartedResponse {
+                sale_id: sale.id.to_string(),
+                payment_attempt_id: attempt.id.to_string(),
+                status: "pending_reconciliation",
+                provider_message: "Checkout outcome is uncertain; do not retry this sale until reconciled",
+            }),
+        ));
     }
 
     Ok((
