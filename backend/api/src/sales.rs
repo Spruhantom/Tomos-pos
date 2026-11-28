@@ -54,8 +54,8 @@ pub struct PaymentStartedResponse {
 fn sumup_currency_minor_unit(currency: &str) -> Option<u8> {
     match currency {
         "CLP" => Some(0),
-        "BRL" | "CHF" | "COP" | "CZK" | "DKK" | "EUR" | "GBP" | "HRK" | "HUF"
-        | "NOK" | "PLN" | "RON" | "SEK" | "USD" => Some(2),
+        "BRL" | "CHF" | "COP" | "CZK" | "DKK" | "EUR" | "GBP" | "HRK" | "HUF" | "NOK" | "PLN"
+        | "RON" | "SEK" | "USD" => Some(2),
         _ => None,
     }
 }
@@ -231,7 +231,13 @@ pub async fn start_sumup_payment(
         // A timeout, transport error or provider 5xx may occur after the reader
         // accepted the checkout; leave it pending for reconciliation so a late
         // successful webhook is not discarded and no duplicate charge is started.
-        if matches!(&error, SumUpError::Api { status: 400..=499, .. }) {
+        if matches!(
+            &error,
+            SumUpError::Api {
+                status: 400..=499,
+                ..
+            }
+        ) {
             let mut failure_tx = state
                 .db
                 .begin()
