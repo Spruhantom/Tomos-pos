@@ -46,8 +46,9 @@ impl CheckoutRequest {
                 "currency must be a three-letter uppercase ISO 4217 code".into(),
             ));
         }
-        let callback = url::Url::parse(&self.return_url)
-            .map_err(|_| SumUpError::InvalidRequest("return_url must be a valid HTTPS URL".into()))?;
+        let callback = url::Url::parse(&self.return_url).map_err(|_| {
+            SumUpError::InvalidRequest("return_url must be a valid HTTPS URL".into())
+        })?;
         if callback.scheme() != "https" {
             return Err(SumUpError::InvalidRequest(
                 "return_url must use HTTPS".into(),
