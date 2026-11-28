@@ -180,6 +180,17 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         .expect("tenant payment attempt should be created");
     }
 
+    let immutable_amount_update = sqlx::query(
+        "UPDATE pos_sales SET amount_minor = amount_minor + 1 WHERE id = $1",
+    )
+    .bind(sale_a)
+    .execute(&pool)
+    .await;
+    assert!(
+        immutable_amount_update.is_err(),
+        "sale amount snapshots must not be mutable"
+    );
+
     let mut tx = pool
         .begin()
         .await
