@@ -56,8 +56,9 @@
 ## M6 — Payment adapters
 - Cash and bank transfer states.
 - [x] SumUp Solo Cloud API bridge foundation and API webhook receiver with per-attempt callback tokens, tenant-scoped persistence, merchant/reference matching and idempotent final-state transitions.
-- [x] Basic tenant-scoped sale amount records and authenticated Solo checkout initiation route.
+- [x] Basic tenant-scoped sale amount records, authenticated Solo checkout initiation and sale-status lookup routes.
 - [x] Successful webhook atomically settles unpaid sale and records payment audit event.
+- [x] Ambiguous network/5xx checkout outcomes remain pending for reconciliation; definitive 4xx provider rejections are marked failed.
 - [ ] Full basket/tax/receipt integration and provider reconciliation.
 - Sandbox integration for selected card/payment-link providers.
 - Signed webhook processing, idempotency and reconciliation.
