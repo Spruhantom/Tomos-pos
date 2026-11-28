@@ -1268,7 +1268,10 @@ pub async fn revoke_staff_invitation(
     .await
     {
         tracing::error!(%db_error, "staff invitation revocation audit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "invitation could not be revoked");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitation could not be revoked",
+        );
     }
 
     if let Err(db_error) = tx.commit().await {
