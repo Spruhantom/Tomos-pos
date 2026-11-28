@@ -242,15 +242,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     },
                     auth::require_permission,
                 ))
-                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant))
-                .post(auth::create_business_location)
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/businesses/{business_id}/locations/create",
+            post(auth::create_business_location)
                 .route_layer(from_fn_with_state(
                     auth::PermissionState {
                         auth: auth_state.clone(),
                         permission_key: "business.manage",
                     },
                     auth::require_permission,
-                )),
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
         )
         .route(
             "/api/v1/business-locations/{location_id}",
