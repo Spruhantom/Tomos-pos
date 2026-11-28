@@ -99,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route(
             "/api/v1/products",
-            get(catalogue::list_products)
+            get(catalogue::list_products).post(catalogue::create_product)
                 .route_layer(from_fn_with_state(
                     auth::PermissionState {
                         auth: auth_state.clone(),
@@ -107,15 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     },
                     auth::require_permission,
                 ))
-                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant))
-                .post(catalogue::create_product)
-                .route_layer(from_fn_with_state(
-                    auth::PermissionState {
-                        auth: auth_state.clone(),
-                        permission_key: "catalogue.manage",
-                    },
-                    auth::require_permission,
-                )),
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
         )
         .route(
             "/api/v1/sales",
