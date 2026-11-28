@@ -53,6 +53,18 @@ export default function Home() {
 
   const selectedBusiness = useMemo(() => businesses.find((business) => business.id === businessId) ?? null, [businesses, businessId]);
 
+  useEffect(() => {
+    if (selectedBusiness) setBusinessForm({
+      legal_name: selectedBusiness.legal_name,
+      trading_name: selectedBusiness.trading_name ?? "",
+      company_number: selectedBusiness.company_number ?? "",
+      vat_number: selectedBusiness.vat_number ?? "",
+      country_code: selectedBusiness.country_code,
+      currency_code: selectedBusiness.currency_code,
+      timezone: selectedBusiness.timezone,
+    });
+  }, [selectedBusiness]);
+
   const loadSession = useCallback(async () => {
     try {
       const current = await api<User>("auth/me");
