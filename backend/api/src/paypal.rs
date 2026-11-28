@@ -298,9 +298,9 @@ pub async fn onboarding_return(
         Err(err) => {
             tracing::error!(%err, "PayPal onboarding session lookup failed");
             return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "PayPal connection could not be completed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal connection could not be completed",
+        );
         }
     };
     let (tenant_id, business_id) = session;
@@ -325,9 +325,7 @@ pub async fn onboarding_return(
                 "PayPal connection could not be completed",
             );
     }
-    let connected = query.permissions_granted
-        && query.consent_status
-        && query.email_confirmed;
+    let connected = query.permissions_granted && query.consent_status && query.email_confirmed;
     let update = sqlx::query(
         "UPDATE business_paypal_accounts SET merchant_id = $3, \
          onboarding_status = CASE WHEN $4 THEN 'connected' ELSE 'pending' END, \
@@ -349,10 +347,12 @@ pub async fn onboarding_return(
                 "PayPal connection could not be completed",
             );
     }
-    let _ = sqlx::query("UPDATE paypal_onboarding_sessions SET completed_at = now() WHERE tracking_id = $1")
-        .bind(query.tracking_id)
-        .execute(&mut *tx)
-        .await;
+    let _ = sqlx::query(
+        "UPDATE paypal_onboarding_sessions SET completed_at = now() WHERE tracking_id = $1",
+    )
+    .bind(query.tracking_id)
+    .execute(&mut *tx)
+    .await;
     if let Err(err) = tx.commit().await {
         tracing::error!(%err, "PayPal callback commit failed");
         return error(
@@ -360,9 +360,12 @@ pub async fn onboarding_return(
                 "PayPal connection could not be completed",
             );
     }
-    let destination = std::env::var("APP_ORIGIN")
-        .unwrap_or_else(|_| "/".to_string());
-    Redirect::to(&format!("{destination}/?paypal={}", if connected { "connected" } else { "consent_required" })).into_response()
+    let destination = std::env::var("APP_ORIGIN").unwrap_or_else(|_| "/".to_string());
+    Redirect::to(&format!(
+        "{destination}/?paypal={}",
+        if connected { "connected" } else { "consent_required" }
+    ))
+    .into_response()
 }
 
 #[derive(Deserialize)]
@@ -738,9 +741,11 @@ pub async fn webhook(
             "PayPal webhook signature is invalid",
         );
     }
-    let event_type = event["event_type"].as_str()
-        .unwrap_or("");
-    if !matches!(event_type, "PAYMENT.CAPTURE.COMPLETED" | "PAYMENT.CAPTURE.DENIED") {
+    let event_type = event["event_type"].as_str().unwrap_or("");
+    if !matches!(
+        event_type,
+        "PAYMENT.CAPTURE.COMPLETED" | "PAYMENT.CAPTURE.DENIED"
+    ) {
         return StatusCode::NO_CONTENT.into_response();
     }
     let custom_id = event["resource"]["custom_id"].as_str()
@@ -757,9 +762,9 @@ pub async fn webhook(
         Err(err) => {
             tracing::error!(%err, "PayPal webhook transaction failed");
             return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "webhook could not be processed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "webhook could not be processed",
+        );
         }
     };
     if let Err(err) = sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
@@ -840,7 +845,10 @@ pub async fn cancel_order(
         Ok(tx) => tx,
         Err(err) => {
             tracing::error!(%err, "PayPal cancellation transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal checkout could not be cancelled");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PayPal checkout could not be cancelled",
+            );
         }
     };
     let cancelled = match sqlx::query(
