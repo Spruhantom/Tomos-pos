@@ -299,65 +299,106 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/api/v1/pos/catalogue",
             get(pos::list_products)
                 .route_layer(from_fn_with_state(
-                    auth::PermissionState { auth: auth_state.clone(), permission_key: "pos.catalog.read" },
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "pos.catalog.read",
+                    },
                     auth::require_permission,
                 ))
-                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+                .route_layer(from_fn_with_state(
+                    auth_state.clone(),
+                    auth::require_tenant,
+                )),
         )
         .route(
             "/api/v1/pos/products",
             post(pos::create_product)
                 .route_layer(from_fn_with_state(
-                    auth::PermissionState { auth: auth_state.clone(), permission_key: "pos.catalog.manage" },
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "pos.catalog.manage",
+                    },
                     auth::require_permission,
                 ))
-                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+                .route_layer(from_fn_with_state(
+                    auth_state.clone(),
+                    auth::require_tenant,
+                )),
         )
-
         .route(
             "/api/v1/pos/tills/current",
             get(pos::current_till)
                 .route_layer(from_fn_with_state(
-                    auth::PermissionState { auth: auth_state.clone(), permission_key: "pos.till.manage" },
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "pos.till.manage",
+                    },
                     auth::require_permission,
                 ))
-                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+                .route_layer(from_fn_with_state(
+                    auth_state.clone(),
+                    auth::require_tenant,
+                )),
         )
         .route(
             "/api/v1/pos/tills/open",
             post(pos::open_till)
                 .route_layer(from_fn_with_state(
-                    auth::PermissionState { auth: auth_state.clone(), permission_key: "pos.till.manage" },
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "pos.till.manage",
+                    },
                     auth::require_permission,
                 ))
-                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+                .route_layer(from_fn_with_state(
+                    auth_state.clone(),
+                    auth::require_tenant,
+                )),
         )
         .route(
             "/api/v1/pos/tills/{till_id}/cash-movements",
             post(pos::record_cash_movement)
                 .route_layer(from_fn_with_state(
-                    auth::PermissionState { auth: auth_state.clone(), permission_key: "pos.till.manage" },
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "pos.till.manage",
+                    },
                     auth::require_permission,
                 ))
-                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+                .route_layer(from_fn_with_state(
+                    auth_state.clone(),
+                    auth::require_tenant,
+                )),
         )
         .route(
             "/api/v1/pos/tills/{till_id}/close",
             post(pos::close_till)
                 .route_layer(from_fn_with_state(
-                    auth::PermissionState { auth: auth_state.clone(), permission_key: "pos.till.manage" },
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "pos.till.manage",
+                    },
                     auth::require_permission,
                 ))
-                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+                .route_layer(from_fn_with_state(
+                    auth_state.clone(),
+                    auth::require_tenant,
+                )),
         )
         .route(
             "/api/v1/pos/sales",
             post(pos::checkout)
                 .route_layer(from_fn_with_state(
-                    auth::PermissionState { auth: auth_state.clone(), permission_key: "pos.checkout" },
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "pos.checkout",
+                    },
                     auth::require_permission,
                 ))
-                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+                .route_layer(from_fn_with_state(
+                    auth_state.clone(),
+                    auth::require_tenant,
+                )),
         )
         .with_state(auth_state);
 
