@@ -1649,7 +1649,6 @@ pub async fn list_staff_memberships(
 
 #[derive(FromRow)]
 struct StaffMembershipDeactivationRow {
-    user_id: uuid::Uuid,
     status: String,
     is_owner: bool,
 }
@@ -1685,7 +1684,7 @@ pub async fn deactivate_staff_membership(
     };
 
     let member = match sqlx::query_as::<_, StaffMembershipDeactivationRow>(
-        "SELECT tm.user_id, tm.status, \
+        "SELECT tm.status, \
                 EXISTS ( \
                     SELECT 1 FROM membership_roles mr \
                     JOIN roles r ON r.tenant_id = mr.tenant_id AND r.id = mr.role_id \
@@ -1703,14 +1702,14 @@ pub async fn deactivate_staff_membership(
     {
         Ok(Some(member)) => member,
         Ok(None) => {
-            return error(StatusCode::NOT_FOUND, "staff membership was not found")
+            return error(StatusCode::NOT_FOUND, "staff membership was not found");
         }
         Err(db_error) => {
             tracing::error!(%db_error, "staff membership deactivation lookup failed");
             return error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "staff member could not be removed",
-        );
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "staff member could not be removed",
+            );
         }
     };
 
@@ -1739,7 +1738,10 @@ pub async fn deactivate_staff_membership(
         Ok(result) => result,
         Err(db_error) => {
             tracing::error!(%db_error, "staff membership deactivation update failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "staff member could not be removed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "staff member could not be removed",
+            );
         }
     };
 
@@ -1758,14 +1760,19 @@ pub async fn deactivate_staff_membership(
     .await
     {
         tracing::error!(%db_error, "staff membership deactivation audit event failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "staff member could not be removed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "staff member could not be removed",
+        );
     }
 
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "staff membership deactivation commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "staff member could not be removed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "staff member could not be removed",
+        );
     }
 
-    let _ = member.user_id;
     StatusCode::NO_CONTENT.into_response()
 }
