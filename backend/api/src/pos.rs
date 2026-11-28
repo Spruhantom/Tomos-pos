@@ -1029,8 +1029,12 @@ pub async fn checkout(
 
     let message = if is_cash {
         "Cash payment recorded. Give the customer the displayed change."
+    } else if request.payment_method == "paypal" {
+        "PayPal order is pending. Complete the PayPal approval and capture before releasing the goods."
+    } else if request.payment_method == "sumup_terminal" {
+        "SumUp sale is pending. Start the payment on a paired Solo reader before releasing the goods."
     } else {
-        if request.payment_method == "paypal" { "PayPal order is pending. Complete the PayPal approval and capture before releasing the goods." } else { "Payment intent created. A configured terminal provider must confirm the card payment before the sale can be completed." }
+        "Payment intent created. A configured terminal provider must confirm the card payment before the sale can be completed."
     };
     (
         StatusCode::CREATED,
