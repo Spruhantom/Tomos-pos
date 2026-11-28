@@ -302,6 +302,35 @@ pub struct BusinessQuery {
     business_id: uuid::Uuid,
 }
 
+pub async fn connection_status(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    Query(query): Query<BusinessQuery>,
+) -> Response {
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(err) => {
+            tracing::error!(%err, "calendar status transaction failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "calendar status could not be loaded");
+        }
+    };
+    match sqlx::query_scalar::<_, String>(
+        "SELECT connection_status FROM google_calendar_connections WHERE tenant_id=$1 AND business_id=$2",
+    )
+    .bind(context.tenant_id)
+    .bind(query.business_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(status)) => Json(json!({ "status": status })).into_response(),
+        Ok(None) => Json(json!({ "status": "not_connected" })).into_response(),
+        Err(err) => {
+            tracing::error!(%err, "calendar status lookup failed");
+            error(StatusCode::INTERNAL_SERVER_ERROR, "calendar status could not be loaded")
+        }
+    }
+}
+
 #[derive(FromRow, serde::Serialize)]
 struct AppointmentRow {
     id: uuid::Uuid,
