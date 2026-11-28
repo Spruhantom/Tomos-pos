@@ -261,6 +261,107 @@ pub async fn logout(State(state): State<AuthState>, headers: HeaderMap) -> Respo
     response
 }
 
+#[derive(sqlx::FromRow)]
+struct UserTenantRow {
+    tenant_id: uuid::Uuid,
+    membership_id: uuid::Uuid,
+    display_name: String,
+    slug: String,
+}
+
+/// Discover only the authenticated user's active tenant memberships.
+pub async fn list_user_tenants(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(token) = token_from_headers(&headers) else {
+        return error(StatusCode::UNAUTHORIZED, "authentication required");
+    };
+
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "tenant discovery transaction failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "tenant memberships could not be listed",
+            );
+        }
+    };
+
+    let user_id = match sqlx::query_scalar::<_, uuid::Uuid>(
+        "SELECT u.id FROM user_sessions s JOIN users u ON u.id = s.user_id \
+         WHERE s.token_hash = $1 AND s.revoked_at IS NULL \
+           AND s.expires_at > now() AND u.is_active = TRUE",
+    )
+    .bind(token_hash(token))
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(id)) => id,
+        Ok(None) => return error(StatusCode::UNAUTHORIZED, "session is invalid or expired"),
+        Err(db_error) => {
+            tracing::error!(%db_error, "tenant discovery session lookup failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "tenant memberships could not be listed",
+            );
+        }
+    };
+
+    if let Err(db_error) = sqlx::query("SELECT set_config('app.user_id', $1, true)")
+        .bind(user_id.to_string())
+        .execute(&mut *tx)
+        .await
+    {
+        tracing::error!(%db_error, "tenant discovery RLS context failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "tenant memberships could not be listed",
+        );
+    }
+
+    let rows = match sqlx::query_as::<_, UserTenantRow>(
+        "SELECT tm.tenant_id, tm.id AS membership_id, t.display_name, t.slug \
+         FROM tenant_memberships tm JOIN tenants t ON t.id = tm.tenant_id \
+         WHERE tm.user_id = $1 AND tm.status = 'active' AND t.status = 'active' \
+         ORDER BY t.display_name, t.id",
+    )
+    .bind(user_id)
+    .fetch_all(&mut *tx)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(db_error) => {
+            tracing::error!(%db_error, "tenant discovery query failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "tenant memberships could not be listed",
+            );
+        }
+    };
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "tenant discovery commit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "tenant memberships could not be listed",
+        );
+    }
+
+    let tenants = rows
+        .into_iter()
+        .map(|row| serde_json::json!({
+            "tenant_id": row.tenant_id,
+            "membership_id": row.membership_id,
+            "display_name": row.display_name,
+            "slug": row.slug
+        }))
+        .collect::<Vec<_>>();
+
+    Json(serde_json::json!({ "tenants": tenants })).into_response()
+}
+
 pub async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let Some(token) = token_from_headers(&headers) else {
         return error(StatusCode::UNAUTHORIZED, "authentication required");
