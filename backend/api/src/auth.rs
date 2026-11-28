@@ -758,7 +758,8 @@ pub async fn initial_setup(
 
     if let Err(db_error) = sqlx::query(
         "INSERT INTO role_permissions (tenant_id, role_id, permission_id) \
-         SELECT $1, $2, id FROM permissions WHERE permission_key = 'business.read'",
+         SELECT $1, $2, id FROM permissions \
+         WHERE permission_key IN ('business.read', 'sales.manage', 'catalogue.read')",
     )
     .bind(tenant_id)
     .bind(staff_role_id)
