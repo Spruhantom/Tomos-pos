@@ -121,11 +121,9 @@ impl PaymentAttempt {
             AttemptStatus::Failed if outcome == PaymentOutcome::Failed => {
                 Ok(ApplyOutcome::AlreadyApplied(outcome))
             }
-            AttemptStatus::Successful | AttemptStatus::Failed => Err(
-                SumUpError::InvalidRequest(
-                    "conflicting final payment event; reconciliation required".into(),
-                ),
-            ),
+            AttemptStatus::Successful | AttemptStatus::Failed => Err(SumUpError::InvalidRequest(
+                "conflicting final payment event; reconciliation required".into(),
+            )),
         }
     }
 
