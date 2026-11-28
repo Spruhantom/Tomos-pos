@@ -162,7 +162,10 @@ pub async fn create_product(
     if name.is_empty()
         || name.chars().count() > 160
         || request.currency.len() != 3
-        || !request.currency.bytes().all(|byte| byte.is_ascii_uppercase())
+        || !request
+            .currency
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase())
         || request.tax_rate_bps > 10_000
     {
         return Err(StatusCode::BAD_REQUEST);
