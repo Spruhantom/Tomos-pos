@@ -27,7 +27,7 @@ Returns `201 Created` with the sale ID, immutable amount, currency and `unpaid` 
 
 Returns `202 Accepted` when SumUp accepts the asynchronous checkout request. This is not a payment confirmation. The sale remains unpaid until the Solo webhook arrives. Only the server-configured reader is accepted in this initial single-reader deployment.
 
-A duplicate pending attempt for the same sale returns `409 Conflict`. A definitive provider 4xx rejection marks the attempt failed. A transport error or provider 5xx leaves the attempt pending for reconciliation because the remote reader may already have accepted the request.
+A duplicate pending attempt for the same sale returns `409 Conflict`. A definitive provider 4xx rejection marks the attempt failed. A transport error or provider 5xx returns `202 Accepted` with `status: pending_reconciliation` and the payment-attempt ID. The client must not retry that sale; the attempt remains pending because the remote reader may already have accepted the request.
 
 ## Read sale status
 
