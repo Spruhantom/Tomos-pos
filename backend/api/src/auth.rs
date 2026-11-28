@@ -2637,6 +2637,94 @@ fn valid_location_address(value: &serde_json::Value) -> bool {
     value.is_object() && value.to_string().len() <= 8_192
 }
 
+/// Create an additional business within the authenticated tenant.
+pub async fn create_business(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    headers: HeaderMap,
+    Json(request): Json<UpdateBusinessRequest>,
+) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+    if !valid_business_settings(&request) {
+        return error(StatusCode::BAD_REQUEST, "business settings are invalid");
+    }
+
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "business creation transaction failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "business could not be created",
+            );
+        }
+    };
+
+    let business_id = match sqlx::query_scalar::<_, uuid::Uuid>(
+        "INSERT INTO businesses \
+         (tenant_id, legal_name, trading_name, company_number, vat_number, \
+          country_code, currency_code, timezone) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
+    )
+    .bind(context.tenant_id)
+    .bind(request.legal_name.trim())
+    .bind(request.trading_name.as_deref().map(str::trim).filter(|value| !value.is_empty()))
+    .bind(request.company_number.as_deref().map(str::trim).filter(|value| !value.is_empty()))
+    .bind(request.vat_number.as_deref().map(str::trim).filter(|value| !value.is_empty()))
+    .bind(request.country_code.trim())
+    .bind(request.currency_code.trim())
+    .bind(request.timezone.trim())
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(id) => id,
+        Err(db_error) => {
+            tracing::error!(%db_error, "business insert failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "business could not be created",
+            );
+        }
+    };
+
+    if let Err(db_error) = crate::audit::record_event(
+        &mut tx,
+        &context,
+        crate::audit::AuditEventType::BusinessCreated,
+        crate::audit::AuditEntityType::Business,
+        Some(business_id),
+        serde_json::json!({
+            "country_code": request.country_code.trim(),
+            "currency_code": request.currency_code.trim(),
+            "timezone": request.timezone.trim()
+        }),
+    )
+    .await
+    {
+        tracing::error!(%db_error, "business creation audit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "business could not be created",
+        );
+    }
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "business creation commit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "business could not be created",
+        );
+    }
+
+    (
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "id": business_id })),
+    )
+        .into_response()
+}
+
 /// List all businesses belonging to the selected tenant.
 pub async fn list_businesses(
     State(state): State<AuthState>,
