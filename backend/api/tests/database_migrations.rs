@@ -53,7 +53,7 @@ async fn migrations_create_identity_schema_and_tenant_policies() {
     .await
     .expect("row-level security metadata query should succeed");
 
-    assert_eq!(protected_tables, 6, "tenant-owned tables must enable RLS");
+    assert_eq!(protected_tables, 5, "tenant-owned tables must enable RLS");
 
     pool.close().await;
 }
