@@ -2156,7 +2156,6 @@ pub async fn deactivate_staff_membership(
     StatusCode::NO_CONTENT.into_response()
 }
 
-
 #[derive(Deserialize)]
 pub struct CreateCustomRoleRequest {
     pub role_key: String,
@@ -2173,16 +2172,15 @@ fn valid_custom_role_key(value: &str) -> bool {
     let bytes = value.as_bytes();
     (2..=40).contains(&bytes.len())
         && bytes[0].is_ascii_lowercase()
-        && bytes.iter().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'-'
-        })
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'-')
         && !matches!(value, "owner" | "staff")
 }
 
 fn valid_role_display_name(value: &str) -> bool {
     let trimmed = value.trim();
-    (2..=80).contains(&trimmed.chars().count())
-        && !trimmed.chars().any(char::is_control)
+    (2..=80).contains(&trimmed.chars().count()) && !trimmed.chars().any(char::is_control)
 }
 
 fn valid_permission_keys(keys: &[String]) -> bool {
@@ -2218,9 +2216,7 @@ pub async fn list_permission_catalogue(State(state): State<AuthState>) -> Respon
 
     let permissions = rows
         .into_iter()
-        .map(|(key, description)| {
-            serde_json::json!({ "key": key, "description": description })
-        })
+        .map(|(key, description)| serde_json::json!({ "key": key, "description": description }))
         .collect::<Vec<_>>();
     Json(serde_json::json!({ "permissions": permissions })).into_response()
 }
@@ -2296,9 +2292,7 @@ pub async fn create_custom_role(
     .await
     {
         Ok(role_id) => role_id,
-        Err(sqlx::Error::Database(db_error))
-            if db_error.code().as_deref() == Some("23505") =>
-        {
+        Err(sqlx::Error::Database(db_error)) if db_error.code().as_deref() == Some("23505") => {
             return error(StatusCode::CONFLICT, "a role with this key already exists");
         }
         Err(db_error) => {
@@ -2448,13 +2442,12 @@ pub async fn update_custom_role_permissions(
         );
     }
 
-    if let Err(db_error) = sqlx::query(
-        "DELETE FROM role_permissions WHERE tenant_id = $1 AND role_id = $2",
-    )
-    .bind(context.tenant_id)
-    .bind(role_id)
-    .execute(&mut *tx)
-    .await
+    if let Err(db_error) =
+        sqlx::query("DELETE FROM role_permissions WHERE tenant_id = $1 AND role_id = $2")
+            .bind(context.tenant_id)
+            .bind(role_id)
+            .execute(&mut *tx)
+            .await
     {
         tracing::error!(%db_error, "role permission replacement delete failed");
         return error(
@@ -2547,8 +2540,8 @@ mod custom_role_validation_tests {
             "business.read".to_string(),
             "business.read".to_string()
         ]));
-        assert!(!valid_permission_keys(&vec!["unknown permission".to_string()]));
-        assert!(!valid_permission_keys(&vec!["UPPER.CASE".to_string()]));
-        assert!(!valid_permission_keys(&vec!["x".repeat(81)]));
+        assert!(!valid_permission_keys(&["unknown permission".to_string()]));
+        assert!(!valid_permission_keys(&["UPPER.CASE".to_string()]));
+        assert!(!valid_permission_keys(&["x".repeat(81)]));
     }
 }
