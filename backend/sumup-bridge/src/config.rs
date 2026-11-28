@@ -51,5 +51,4 @@ impl SumUpConfig {
                 .map_err(|error| SumUpError::InvalidConfiguration(error.to_string()))?,
         })
     }
-
 }
