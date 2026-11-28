@@ -1704,7 +1704,10 @@ pub async fn assign_staff_role(
         return error(StatusCode::CONFLICT, "owner roles cannot be changed here");
     }
     if target.status != "active" {
-        return error(StatusCode::CONFLICT, "only an active membership can receive roles");
+        return error(
+            StatusCode::CONFLICT,
+            "only an active membership can receive roles",
+        );
     }
 
     let role_key = match sqlx::query_scalar::<_, String>(
@@ -1843,7 +1846,10 @@ pub async fn remove_staff_role(
         return error(StatusCode::CONFLICT, "owner roles cannot be changed here");
     }
     if target.status != "active" {
-        return error(StatusCode::CONFLICT, "only an active membership can be changed");
+        return error(
+            StatusCode::CONFLICT,
+            "only an active membership can be changed",
+        );
     }
 
     let role = match sqlx::query_as::<_, (String, bool)>(
