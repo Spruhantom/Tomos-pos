@@ -55,7 +55,8 @@
 
 ## M6 — Payment adapters
 - Cash and bank transfer states.
-- [ ] SumUp Solo Cloud API adapter foundation (separate Rust crate; sandbox and POS wiring remain outstanding).\n- Sandbox integration for selected card/payment-link providers.
+- [ ] SumUp Solo Cloud API adapter foundation (separate Rust crate; sandbox and POS wiring remain outstanding).
+- Sandbox integration for selected card/payment-link providers.
 - Signed webhook processing, idempotency and reconciliation.
 - Provider and terminal capability matrix.
 
