@@ -342,7 +342,7 @@ struct LedgerRow {
     entry_type: String,
     points_delta: i64,
     note: Option<String>,
-    created_at: time::OffsetDateTime,
+    created_at: chrono::DateTime<chrono::Utc>,
 }
 
 pub async fn customer_ledger(
