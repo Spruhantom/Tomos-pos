@@ -133,6 +133,26 @@ pub async fn connect_business(
     if !business_exists {
         return error(StatusCode::NOT_FOUND, "business was not found");
     }
+    let already_connected: bool = match sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM business_paypal_accounts WHERE tenant_id = $1 AND business_id = $2 AND onboarding_status = 'connected')",
+    )
+    .bind(context.tenant_id)
+    .bind(request.business_id)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(connected) => connected,
+        Err(err) => {
+            tracing::error!(%err, "PayPal connection status lookup failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PayPal connection status could not be checked",
+            );
+        }
+    };
+    if already_connected {
+        return error(StatusCode::CONFLICT, "this business is already connected to PayPal");
+    }
 
     let token = match config.access_token().await {
         Ok(token) if !token.is_empty() => token,
