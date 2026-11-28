@@ -45,11 +45,11 @@ Set `COOKIE_SECURE=true` whenever the application is served over HTTPS. The samp
 
 ## Current limitations — not production ready
 
-- Staff account administration and role-assignment endpoints are not implemented yet.
+- Staff invitation creation, listing and revocation are implemented. Tenant-scoped staff membership listing/removal and audited role assignment/removal are also available; custom role creation, permission editing and membership reactivation remain outstanding.
 - CSRF/origin validation currently covers authentication state changes; all future cookie-authenticated mutation routes must apply the same origin validation or a stronger CSRF token strategy.
 - MFA, password reset, email verification and session/device management are outstanding.
-- Tenant-scoped authorisation middleware is implemented for the tenant context endpoint; all future business routes still need explicit permission middleware and tenant-scoped transactions.
-- Business registration and staff invitations after first-run setup are not implemented.
+- Tenant-scoped authorisation middleware is implemented for the tenant context and staff invitation endpoints; every future business route still needs explicit permission middleware and tenant-scoped transactions.
+- Ongoing business registration and tenant provisioning are not implemented; staff invitations are available after first-run setup.
 - The API currently has no web frontend.
 
 Do not expose this API to the public internet or use it for live business data until the outstanding security controls and integration tests are complete.
@@ -75,4 +75,20 @@ POST /api/v1/staff/invitations requires an authenticated tenant session and the 
 
 POST /api/v1/staff/invitations/accept accepts a valid invitation for a new account, requires the exact configured Origin, a password of at least 12 characters and a display name, creates the account and active membership, assigns only the preselected Staff role, records an audit event and creates a session in one transaction. Expired, revoked, invalid and previously used tokens are rejected. Existing-account invitation linking is not implemented and returns a conflict.
 
-The Staff role created during initial setup currently grants only business.read. Role administration, invitation listing/revocation, email delivery, email verification and existing-account linking remain outstanding. Treat invitation tokens like passwords: anyone holding one can claim the invitation.
+The Staff role created during initial setup currently grants only business.read. `GET /api/v1/staff/invitations` lists up to 200 newest invitations for the selected tenant and returns their status (`pending`, `expired`, `accepted` or `revoked`) without exposing token digests. `DELETE /api/v1/staff/invitations/{invitation_id}` revokes a pending invitation; accepted, expired or already-revoked invitations cannot be revoked. Both endpoints require `roles.manage`; revocation also requires the exact configured `Origin` and is recorded in the append-only audit ledger. Email delivery, email verification and existing-account linking remain outstanding. Treat invitation tokens like passwords: anyone holding one can claim the invitation.
+
+
+## Staff membership management
+
+`GET /api/v1/staff/memberships` requires the `staff.read` permission and returns up to 200 memberships for the selected tenant, including the account's public email/display name, membership status and assigned role keys. It does not expose password hashes, session data or other tenants' memberships.
+
+`DELETE /api/v1/staff/memberships/{membership_id}` requires `staff.manage` and the exact configured `Origin`. It changes only the selected tenant membership to `removed`; it does not disable the user's global account or revoke sessions for other tenants. The acting user cannot remove their own membership, and owner memberships are protected from this endpoint. The change and the `staff.deactivated` audit event are committed in one transaction. Removed memberships cannot currently be reactivated through the API.
+
+
+## Staff roles and assignments
+
+`GET /api/v1/staff/roles` requires `roles.manage` and lists the selected tenant's roles with their permission keys. The built-in Owner role is marked non-assignable and cannot be granted through the staff API.
+
+`POST /api/v1/staff/memberships/{membership_id}/roles` accepts a JSON `role_id` and assigns an existing role from the selected tenant. `DELETE /api/v1/staff/memberships/{membership_id}/roles/{role_id}` removes an existing assignment. Both operations require `roles.manage`, the exact configured `Origin`, an active non-owner target membership and an assignment to another member (self-role changes are rejected). A member's final role cannot be removed. Successful changes write a `staff.role_changed` audit event in the same transaction.
+
+These endpoints assign existing roles only. They do not create custom roles or edit permission grants; those operations require a separate role-definition workflow and remain outstanding.

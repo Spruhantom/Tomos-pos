@@ -1092,6 +1092,202 @@ pub async fn create_staff_invitation(
     .into_response()
 }
 
+#[derive(Serialize)]
+struct StaffInvitationListItem {
+    id: String,
+    email: String,
+    created_at: String,
+    expires_at: String,
+    accepted_at: Option<String>,
+    revoked_at: Option<String>,
+    status: String,
+}
+
+#[derive(FromRow)]
+struct StaffInvitationListRow {
+    id: uuid::Uuid,
+    email_normalized: String,
+    created_at: String,
+    expires_at: String,
+    accepted_at: Option<String>,
+    revoked_at: Option<String>,
+    status: String,
+}
+
+pub async fn list_staff_invitations(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+) -> Response {
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff invitation list transaction failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitations could not be listed",
+            );
+        }
+    };
+
+    let rows = match sqlx::query_as::<_, StaffInvitationListRow>(
+        "SELECT id, email_normalized, created_at::text AS created_at, \
+                expires_at::text AS expires_at, accepted_at::text AS accepted_at, \
+                revoked_at::text AS revoked_at, \
+                CASE WHEN accepted_at IS NOT NULL THEN 'accepted' \
+                     WHEN revoked_at IS NOT NULL THEN 'revoked' \
+                     WHEN expires_at <= now() THEN 'expired' ELSE 'pending' END AS status \
+         FROM staff_invitations WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 200",
+    )
+    .bind(context.tenant_id)
+    .fetch_all(&mut *tx)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff invitation list query failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitations could not be listed",
+            );
+        }
+    };
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "staff invitation list transaction commit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitations could not be listed",
+        );
+    }
+
+    let invitations = rows
+        .into_iter()
+        .map(|row| StaffInvitationListItem {
+            id: row.id.to_string(),
+            email: row.email_normalized,
+            created_at: row.created_at,
+            expires_at: row.expires_at,
+            accepted_at: row.accepted_at,
+            revoked_at: row.revoked_at,
+            status: row.status,
+        })
+        .collect::<Vec<_>>();
+
+    Json(serde_json::json!({ "invitations": invitations, "limit": 200 })).into_response()
+}
+
+#[derive(FromRow)]
+struct InvitationRevocationRow {
+    email_normalized: String,
+    is_pending: bool,
+}
+
+pub async fn revoke_staff_invitation(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    axum::extract::Path(invitation_id): axum::extract::Path<uuid::Uuid>,
+    headers: HeaderMap,
+) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff invitation revocation transaction failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be revoked",
+            );
+        }
+    };
+
+    let invitation = match sqlx::query_as::<_, InvitationRevocationRow>(
+        "SELECT email_normalized, \
+                (accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()) AS is_pending \
+         FROM staff_invitations WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+    )
+    .bind(invitation_id)
+    .bind(context.tenant_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(invitation)) => invitation,
+        Ok(None) => return error(StatusCode::NOT_FOUND, "invitation was not found"),
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff invitation revocation lookup failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be revoked",
+            );
+        }
+    };
+
+    if !invitation.is_pending {
+        return error(
+            StatusCode::CONFLICT,
+            "only a pending invitation can be revoked",
+        );
+    }
+
+    let updated = match sqlx::query(
+        "UPDATE staff_invitations SET revoked_at = now() \
+         WHERE id = $1 AND tenant_id = $2 AND accepted_at IS NULL \
+           AND revoked_at IS NULL AND expires_at > now()",
+    )
+    .bind(invitation_id)
+    .bind(context.tenant_id)
+    .execute(&mut *tx)
+    .await
+    {
+        Ok(result) => result,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff invitation revocation update failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be revoked",
+            );
+        }
+    };
+
+    // The expiry check is repeated in the UPDATE so an invitation that expires
+    // while this request holds its row lock cannot be revoked as if still pending.
+    if updated.rows_affected() != 1 {
+        return error(
+            StatusCode::CONFLICT,
+            "only a pending invitation can be revoked",
+        );
+    }
+
+    if let Err(db_error) = crate::audit::record_event(
+        &mut tx,
+        &context,
+        crate::audit::AuditEventType::StaffInvitationRevoked,
+        crate::audit::AuditEntityType::Invitation,
+        Some(invitation_id),
+        serde_json::json!({ "email": invitation.email_normalized }),
+    )
+    .await
+    {
+        tracing::error!(%db_error, "staff invitation revocation audit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitation could not be revoked",
+        );
+    }
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "staff invitation revocation commit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitation could not be revoked",
+        );
+    }
+
+    StatusCode::NO_CONTENT.into_response()
+}
+
 /// Accept an invitation for a new account. Existing-account linking and email
 /// delivery are intentionally separate follow-up work, not implicit here.
 pub async fn accept_staff_invitation(
@@ -1224,6 +1420,18 @@ pub async fn accept_staff_invitation(
     .await
     {
         Ok(id) => id,
+        Err(db_error)
+            if db_error.as_database_error().is_some_and(|database_error| {
+                database_error.code().as_deref() == Some("23505")
+            }) =>
+        {
+            // Another invitation may have created this global account after the
+            // earlier existence check. Treat the unique-email race as a conflict.
+            return error(
+                StatusCode::CONFLICT,
+                "an account already exists for this email; sign-in invitation linking is not available yet",
+            );
+        }
         Err(db_error) => {
             tracing::error!(%db_error, "invited user account creation failed");
             return error(
@@ -1356,4 +1564,594 @@ pub async fn accept_staff_invitation(
         session_cookie(&session_token, state.cookie_secure, SESSION_SECONDS),
     );
     response
+}
+
+#[derive(Deserialize)]
+pub struct AssignStaffRoleRequest {
+    pub role_id: uuid::Uuid,
+}
+
+#[derive(FromRow)]
+struct StaffRoleListRow {
+    id: uuid::Uuid,
+    role_key: String,
+    display_name: String,
+    is_system: bool,
+    permission_keys: Vec<String>,
+}
+
+/// Return this tenant's roles and their fixed permission vocabulary.
+pub async fn list_staff_roles(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+) -> Response {
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff role list transaction failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "roles could not be listed",
+            );
+        }
+    };
+
+    let rows = match sqlx::query_as::<_, StaffRoleListRow>(
+        "SELECT r.id, r.role_key, r.display_name, r.is_system, \
+                COALESCE(array_agg(p.permission_key ORDER BY p.permission_key) \
+                    FILTER (WHERE p.permission_key IS NOT NULL), ARRAY[]::text[]) \
+                    AS permission_keys \
+         FROM roles r \
+         LEFT JOIN role_permissions rp \
+           ON rp.tenant_id = r.tenant_id AND rp.role_id = r.id \
+         LEFT JOIN permissions p ON p.id = rp.permission_id \
+         WHERE r.tenant_id = $1 \
+         GROUP BY r.id \
+         ORDER BY r.is_system DESC, r.display_name",
+    )
+    .bind(context.tenant_id)
+    .fetch_all(&mut *tx)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff role list query failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "roles could not be listed",
+            );
+        }
+    };
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "staff role list commit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "roles could not be listed",
+        );
+    }
+
+    let roles = rows
+        .into_iter()
+        .map(|row| {
+            serde_json::json!({
+                "id": row.id,
+                "key": row.role_key,
+                "display_name": row.display_name,
+                "is_system": row.is_system,
+                "assignable": row.role_key != "owner",
+                "permissions": row.permission_keys
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Json(serde_json::json!({ "roles": roles })).into_response()
+}
+
+/// Assign an existing tenant role to another active, non-owner member.
+pub async fn assign_staff_role(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    axum::extract::Path(membership_id): axum::extract::Path<uuid::Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<AssignStaffRoleRequest>,
+) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+    if membership_id == context.membership_id {
+        return error(StatusCode::CONFLICT, "you cannot change your own roles");
+    }
+
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff role assignment transaction failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "role could not be assigned",
+            );
+        }
+    };
+
+    let target = match sqlx::query_as::<_, StaffMembershipDeactivationRow>(
+        "SELECT tm.status, EXISTS ( \
+             SELECT 1 FROM membership_roles mr \
+             JOIN roles r ON r.tenant_id = mr.tenant_id AND r.id = mr.role_id \
+             WHERE mr.tenant_id = tm.tenant_id AND mr.membership_id = tm.id \
+               AND r.role_key = 'owner' \
+         ) AS is_owner \
+         FROM tenant_memberships tm \
+         WHERE tm.id = $1 AND tm.tenant_id = $2 FOR UPDATE",
+    )
+    .bind(membership_id)
+    .bind(context.tenant_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(target)) => target,
+        Ok(None) => return error(StatusCode::NOT_FOUND, "staff membership was not found"),
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff role target lookup failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "role could not be assigned",
+            );
+        }
+    };
+
+    if target.is_owner {
+        return error(StatusCode::CONFLICT, "owner roles cannot be changed here");
+    }
+    if target.status != "active" {
+        return error(
+            StatusCode::CONFLICT,
+            "only an active membership can receive roles",
+        );
+    }
+
+    let role_key = match sqlx::query_scalar::<_, String>(
+        "SELECT role_key FROM roles \
+         WHERE id = $1 AND tenant_id = $2",
+    )
+    .bind(request.role_id)
+    .bind(context.tenant_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(role_key)) => role_key,
+        Ok(None) => return error(StatusCode::NOT_FOUND, "role was not found"),
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff role lookup failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "role could not be assigned",
+            );
+        }
+    };
+
+    if role_key == "owner" {
+        return error(StatusCode::FORBIDDEN, "the owner role cannot be assigned");
+    }
+
+    let inserted = match sqlx::query(
+        "INSERT INTO membership_roles (tenant_id, membership_id, role_id) \
+         VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+    )
+    .bind(context.tenant_id)
+    .bind(membership_id)
+    .bind(request.role_id)
+    .execute(&mut *tx)
+    .await
+    {
+        Ok(result) => result,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff role assignment insert failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "role could not be assigned",
+            );
+        }
+    };
+
+    if inserted.rows_affected() != 1 {
+        return error(StatusCode::CONFLICT, "role is already assigned");
+    }
+
+    if let Err(db_error) = crate::audit::record_event(
+        &mut tx,
+        &context,
+        crate::audit::AuditEventType::StaffRoleChanged,
+        crate::audit::AuditEntityType::Membership,
+        Some(membership_id),
+        serde_json::json!({
+            "action": "assigned",
+            "role_id": request.role_id,
+            "role_key": role_key
+        }),
+    )
+    .await
+    {
+        tracing::error!(%db_error, "staff role assignment audit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "role could not be assigned",
+        );
+    }
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "staff role assignment commit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "role could not be assigned",
+        );
+    }
+
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// Remove a role from another active, non-owner member while retaining at
+/// least one role so the membership cannot become silently orphaned.
+pub async fn remove_staff_role(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    axum::extract::Path((membership_id, role_id)): axum::extract::Path<(uuid::Uuid, uuid::Uuid)>,
+    headers: HeaderMap,
+) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+    if membership_id == context.membership_id {
+        return error(StatusCode::CONFLICT, "you cannot change your own roles");
+    }
+
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff role removal transaction failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "role could not be removed",
+            );
+        }
+    };
+
+    let target = match sqlx::query_as::<_, StaffMembershipDeactivationRow>(
+        "SELECT tm.status, EXISTS ( \
+             SELECT 1 FROM membership_roles mr \
+             JOIN roles r ON r.tenant_id = mr.tenant_id AND r.id = mr.role_id \
+             WHERE mr.tenant_id = tm.tenant_id AND mr.membership_id = tm.id \
+               AND r.role_key = 'owner' \
+         ) AS is_owner \
+         FROM tenant_memberships tm \
+         WHERE tm.id = $1 AND tm.tenant_id = $2 FOR UPDATE",
+    )
+    .bind(membership_id)
+    .bind(context.tenant_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(target)) => target,
+        Ok(None) => return error(StatusCode::NOT_FOUND, "staff membership was not found"),
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff role removal target lookup failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "role could not be removed",
+            );
+        }
+    };
+
+    if target.is_owner {
+        return error(StatusCode::CONFLICT, "owner roles cannot be changed here");
+    }
+    if target.status != "active" {
+        return error(
+            StatusCode::CONFLICT,
+            "only an active membership can be changed",
+        );
+    }
+
+    let role = match sqlx::query_as::<_, (String, bool)>(
+        "SELECT r.role_key, \
+                (SELECT count(*) FROM membership_roles all_roles \
+                 WHERE all_roles.tenant_id = $2 AND all_roles.membership_id = $3) > 1 \
+         FROM roles r \
+         JOIN membership_roles mr ON mr.tenant_id = r.tenant_id AND mr.role_id = r.id \
+         WHERE r.id = $1 AND r.tenant_id = $2 AND mr.membership_id = $3",
+    )
+    .bind(role_id)
+    .bind(context.tenant_id)
+    .bind(membership_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(role)) => role,
+        Ok(None) => {
+            return error(StatusCode::NOT_FOUND, "role assignment was not found");
+        }
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff role assignment lookup failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "role could not be removed",
+            );
+        }
+    };
+
+    if role.0 == "owner" {
+        return error(StatusCode::CONFLICT, "owner roles cannot be removed here");
+    }
+    if !role.1 {
+        return error(
+            StatusCode::CONFLICT,
+            "the last role cannot be removed from a membership",
+        );
+    }
+
+    let deleted = match sqlx::query(
+        "DELETE FROM membership_roles \
+         WHERE tenant_id = $1 AND membership_id = $2 AND role_id = $3",
+    )
+    .bind(context.tenant_id)
+    .bind(membership_id)
+    .bind(role_id)
+    .execute(&mut *tx)
+    .await
+    {
+        Ok(result) => result,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff role removal delete failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "role could not be removed",
+            );
+        }
+    };
+
+    if deleted.rows_affected() != 1 {
+        return error(StatusCode::CONFLICT, "role assignment has changed");
+    }
+
+    if let Err(db_error) = crate::audit::record_event(
+        &mut tx,
+        &context,
+        crate::audit::AuditEventType::StaffRoleChanged,
+        crate::audit::AuditEntityType::Membership,
+        Some(membership_id),
+        serde_json::json!({
+            "action": "removed",
+            "role_id": role_id,
+            "role_key": role.0
+        }),
+    )
+    .await
+    {
+        tracing::error!(%db_error, "staff role removal audit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "role could not be removed",
+        );
+    }
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "staff role removal commit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "role could not be removed",
+        );
+    }
+
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(FromRow)]
+struct StaffMembershipListRow {
+    membership_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+    email: String,
+    display_name: String,
+    status: String,
+    roles: Vec<String>,
+}
+
+/// List memberships for the selected tenant. The query is tenant-scoped by
+/// both the transaction context and an explicit tenant predicate.
+pub async fn list_staff_memberships(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+) -> Response {
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff membership list transaction failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "staff could not be listed",
+            );
+        }
+    };
+
+    let rows = match sqlx::query_as::<_, StaffMembershipListRow>(
+        "SELECT tm.id AS membership_id, u.id AS user_id, u.email, u.display_name, \
+                tm.status, \
+                COALESCE(array_agg(r.role_key ORDER BY r.role_key) \
+                    FILTER (WHERE r.role_key IS NOT NULL), ARRAY[]::text[]) AS roles \
+         FROM tenant_memberships tm \
+         JOIN users u ON u.id = tm.user_id \
+         LEFT JOIN membership_roles mr \
+           ON mr.tenant_id = tm.tenant_id AND mr.membership_id = tm.id \
+         LEFT JOIN roles r ON r.tenant_id = mr.tenant_id AND r.id = mr.role_id \
+         WHERE tm.tenant_id = $1 \
+         GROUP BY tm.id, u.id \
+         ORDER BY u.display_name, u.email_normalized \
+         LIMIT 200",
+    )
+    .bind(context.tenant_id)
+    .fetch_all(&mut *tx)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff membership list query failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "staff could not be listed",
+            );
+        }
+    };
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "staff membership list transaction commit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "staff could not be listed",
+        );
+    }
+
+    let members = rows
+        .into_iter()
+        .map(|row| {
+            serde_json::json!({
+                "membership_id": row.membership_id,
+                "user_id": row.user_id,
+                "email": row.email,
+                "display_name": row.display_name,
+                "status": row.status,
+                "roles": row.roles
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Json(serde_json::json!({ "members": members, "limit": 200 })).into_response()
+}
+
+#[derive(FromRow)]
+struct StaffMembershipDeactivationRow {
+    status: String,
+    is_owner: bool,
+}
+
+/// Remove a staff membership from this tenant without disabling the user's
+/// global account or affecting memberships in other tenants.
+pub async fn deactivate_staff_membership(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    axum::extract::Path(membership_id): axum::extract::Path<uuid::Uuid>,
+    headers: HeaderMap,
+) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+
+    if membership_id == context.membership_id {
+        return error(
+            StatusCode::CONFLICT,
+            "you cannot remove your own membership",
+        );
+    }
+
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff membership deactivation transaction failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "staff member could not be removed",
+            );
+        }
+    };
+
+    let member = match sqlx::query_as::<_, StaffMembershipDeactivationRow>(
+        "SELECT tm.status, \
+                EXISTS ( \
+                    SELECT 1 FROM membership_roles mr \
+                    JOIN roles r ON r.tenant_id = mr.tenant_id AND r.id = mr.role_id \
+                    WHERE mr.tenant_id = tm.tenant_id \
+                      AND mr.membership_id = tm.id AND r.role_key = 'owner' \
+                ) AS is_owner \
+         FROM tenant_memberships tm \
+         WHERE tm.id = $1 AND tm.tenant_id = $2 \
+         FOR UPDATE",
+    )
+    .bind(membership_id)
+    .bind(context.tenant_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(member)) => member,
+        Ok(None) => {
+            return error(StatusCode::NOT_FOUND, "staff membership was not found");
+        }
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff membership deactivation lookup failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "staff member could not be removed",
+            );
+        }
+    };
+
+    if member.is_owner {
+        return error(
+            StatusCode::CONFLICT,
+            "owner memberships cannot be removed here",
+        );
+    }
+    if member.status != "active" {
+        return error(
+            StatusCode::CONFLICT,
+            "only an active membership can be removed",
+        );
+    }
+
+    let updated = match sqlx::query(
+        "UPDATE tenant_memberships SET status = 'removed', updated_at = now() \
+         WHERE id = $1 AND tenant_id = $2 AND status = 'active'",
+    )
+    .bind(membership_id)
+    .bind(context.tenant_id)
+    .execute(&mut *tx)
+    .await
+    {
+        Ok(result) => result,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff membership deactivation update failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "staff member could not be removed",
+            );
+        }
+    };
+
+    if updated.rows_affected() != 1 {
+        return error(StatusCode::CONFLICT, "membership is no longer active");
+    }
+
+    if let Err(db_error) = crate::audit::record_event(
+        &mut tx,
+        &context,
+        crate::audit::AuditEventType::StaffDeactivated,
+        crate::audit::AuditEntityType::Membership,
+        Some(membership_id),
+        serde_json::json!({ "status": "removed" }),
+    )
+    .await
+    {
+        tracing::error!(%db_error, "staff membership deactivation audit event failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "staff member could not be removed",
+        );
+    }
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "staff membership deactivation commit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "staff member could not be removed",
+        );
+    }
+
+    StatusCode::NO_CONTENT.into_response()
 }

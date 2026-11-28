@@ -1,5 +1,24 @@
 use sqlx::PgPool;
 
+async fn acquire_database_test_lock(pool: &PgPool) -> sqlx::pool::PoolConnection<sqlx::Postgres> {
+    let mut connection = pool
+        .acquire()
+        .await
+        .expect("database test lock connection should be acquired");
+    sqlx::query("SELECT pg_advisory_lock(731942, 1)")
+        .execute(&mut *connection)
+        .await
+        .expect("database integration tests should be serialized");
+    connection
+}
+
+async fn release_database_test_lock(mut connection: sqlx::pool::PoolConnection<sqlx::Postgres>) {
+    sqlx::query("SELECT pg_advisory_unlock(731942, 1)")
+        .execute(&mut *connection)
+        .await
+        .expect("database integration test lock should be released");
+}
+
 #[tokio::test]
 async fn migrations_create_identity_schema_and_tenant_policies() {
     let database_url = std::env::var("DATABASE_URL")
@@ -7,6 +26,7 @@ async fn migrations_create_identity_schema_and_tenant_policies() {
     let pool = PgPool::connect(&database_url)
         .await
         .expect("test database should accept connections");
+    let test_lock = acquire_database_test_lock(&pool).await;
 
     sqlx::migrate!("../../database/migrations")
         .run(&pool)
@@ -55,6 +75,7 @@ async fn migrations_create_identity_schema_and_tenant_policies() {
 
     assert_eq!(protected_tables, 5, "tenant-owned tables must enable RLS");
 
+    release_database_test_lock(test_lock).await;
     pool.close().await;
 }
 
@@ -65,6 +86,7 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     let pool = PgPool::connect(&database_url)
         .await
         .expect("test database should accept connections");
+    let test_lock = acquire_database_test_lock(&pool).await;
 
     sqlx::migrate!("../../database/migrations")
         .run(&pool)
@@ -80,7 +102,7 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     .expect("test runtime role should exist");
 
     sqlx::query(
-        "GRANT SELECT ON tenants, businesses, business_locations, tenant_memberships, audit_events \
+        "GRANT SELECT ON tenants, businesses, business_locations, tenant_memberships, audit_events, staff_invitations \
          TO tomos_pos_rls_test",
     )
     .execute(&pool)
@@ -190,6 +212,7 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     tx.rollback()
         .await
         .expect("RLS test transaction should roll back");
+    release_database_test_lock(test_lock).await;
     pool.close().await;
 }
 
@@ -200,6 +223,7 @@ async fn audit_events_reject_update_delete_and_truncate() {
     let pool = PgPool::connect(&database_url)
         .await
         .expect("test database should accept connections");
+    let test_lock = acquire_database_test_lock(&pool).await;
 
     sqlx::migrate!("../../database/migrations")
         .run(&pool)
@@ -278,5 +302,138 @@ async fn audit_events_reject_update_delete_and_truncate() {
     tx.rollback()
         .await
         .expect("audit test transaction should roll back");
+    release_database_test_lock(test_lock).await;
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn staff_invitation_rls_scopes_tenant_and_token_lookups() {
+    let database_url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set for database integration tests");
+    let pool = PgPool::connect(&database_url)
+        .await
+        .expect("database should accept connections");
+    let test_lock = acquire_database_test_lock(&pool).await;
+
+    sqlx::migrate!("../../database/migrations")
+        .run(&pool)
+        .await
+        .expect("all database migrations should apply");
+
+    sqlx::query(
+        "DO $$ BEGIN CREATE ROLE tomos_pos_invitation_rls_test NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$",
+    )
+    .execute(&pool)
+    .await
+    .expect("invitation runtime role should exist");
+    sqlx::query("GRANT SELECT ON staff_invitations TO tomos_pos_invitation_rls_test")
+        .execute(&pool)
+        .await
+        .expect("invitation runtime role should have read access");
+
+    let tenant_a: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO tenants (slug, display_name) VALUES ($1, 'Invitation RLS A') RETURNING id",
+    )
+    .bind(format!("invite-a-{}", uuid::Uuid::new_v4()))
+    .fetch_one(&pool)
+    .await
+    .expect("tenant A should be created");
+    let tenant_b: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO tenants (slug, display_name) VALUES ($1, 'Invitation RLS B') RETURNING id",
+    )
+    .bind(format!("invite-b-{}", uuid::Uuid::new_v4()))
+    .fetch_one(&pool)
+    .await
+    .expect("tenant B should be created");
+
+    for (tenant_id, suffix, token_hash) in [
+        (tenant_a, "a", "invitation-token-hash-a"),
+        (tenant_b, "b", "invitation-token-hash-b"),
+    ] {
+        let inviter_id: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO users (email, email_normalized, password_hash, display_name) VALUES ($1, $1, 'test-hash', 'Invitation inviter') RETURNING id",
+        )
+        .bind(format!("inviter-{suffix}-{}@example.test", uuid::Uuid::new_v4()))
+        .fetch_one(&pool)
+        .await
+        .expect("inviter account should be created");
+        let role_id: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO roles (tenant_id, role_key, display_name, is_system) VALUES ($1, 'staff-test', 'Staff test', FALSE) RETURNING id",
+        )
+        .bind(tenant_id)
+        .fetch_one(&pool)
+        .await
+        .expect("tenant staff role should be created");
+        sqlx::query(
+            "INSERT INTO staff_invitations (tenant_id, email_normalized, role_id, invited_by, token_hash, expires_at) VALUES ($1, $2, $3, $4, $5, now() + interval '7 days')",
+        )
+        .bind(tenant_id)
+        .bind(format!("new-{suffix}-{}@example.test", uuid::Uuid::new_v4()))
+        .bind(role_id)
+        .bind(inviter_id)
+        .bind(token_hash)
+        .execute(&pool)
+        .await
+        .expect("invitation should be created");
+    }
+
+    let mut tx = pool.begin().await.expect("RLS transaction should start");
+    sqlx::query("SET LOCAL ROLE tomos_pos_invitation_rls_test")
+        .execute(&mut *tx)
+        .await
+        .expect("queries should run as the non-owner runtime role");
+
+    let no_context: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM staff_invitations")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("query without context should succeed");
+    assert_eq!(no_context, 0, "no context must reveal no invitations");
+
+    sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
+        .bind(tenant_a.to_string())
+        .execute(&mut *tx)
+        .await
+        .expect("tenant A context should be set");
+    let tenant_a_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM staff_invitations")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("tenant A invitation query should succeed");
+    assert_eq!(tenant_a_count, 1, "tenant A must see only its invitation");
+
+    sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
+        .bind(tenant_b.to_string())
+        .execute(&mut *tx)
+        .await
+        .expect("tenant B context should be set");
+    let tenant_b_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM staff_invitations")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("tenant B invitation query should succeed");
+    assert_eq!(tenant_b_count, 1, "tenant B must see only its invitation");
+
+    sqlx::query("SELECT set_config('app.tenant_id', '', true)")
+        .execute(&mut *tx)
+        .await
+        .expect("tenant context should be cleared");
+    sqlx::query("SELECT set_config('app.invitation_token_hash', $1, true)")
+        .bind("invitation-token-hash-a")
+        .execute(&mut *tx)
+        .await
+        .expect("invitation token context should be set");
+    let token_matches: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM staff_invitations WHERE token_hash = 'invitation-token-hash-a'",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .expect("token-scoped invitation lookup should succeed");
+    assert_eq!(
+        token_matches, 1,
+        "the presented token digest must reveal only its matching invitation"
+    );
+
+    tx.rollback()
+        .await
+        .expect("RLS transaction should roll back");
+    release_database_test_lock(test_lock).await;
     pool.close().await;
 }

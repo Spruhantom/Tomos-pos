@@ -5,7 +5,7 @@ use axum::{
     extract::{Extension, State},
     http::StatusCode,
     middleware::from_fn_with_state,
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use serde::Serialize;
@@ -100,7 +100,80 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route(
             "/api/v1/staff/invitations",
-            post(auth::create_staff_invitation)
+            get(auth::list_staff_invitations)
+                .post(auth::create_staff_invitation)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "roles.manage",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/staff/invitations/{invitation_id}",
+            delete(auth::revoke_staff_invitation)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "roles.manage",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/staff/memberships",
+            get(auth::list_staff_memberships)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "staff.read",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/staff/memberships/{membership_id}",
+            delete(auth::deactivate_staff_membership)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "staff.manage",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/staff/roles",
+            get(auth::list_staff_roles)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "roles.manage",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/staff/memberships/{membership_id}/roles",
+            post(auth::assign_staff_role)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "roles.manage",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/staff/memberships/{membership_id}/roles/{role_id}",
+            delete(auth::remove_staff_role)
                 .route_layer(from_fn_with_state(
                     auth::PermissionState {
                         auth: auth_state.clone(),

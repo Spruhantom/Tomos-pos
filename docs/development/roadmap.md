@@ -20,7 +20,12 @@
 - [ ] Ongoing tenant provisioning service and owner invitations.
 - [x] Single-use, seven-day staff invitations for new accounts, with tenant-scoped storage and token hashing.
 - [x] Invitation acceptance creates an active membership, assigns the fixed least-privileged Staff role, creates a session and records an audit event transactionally.
-- [ ] Email delivery, existing-account invitation linking, invitation listing/revocation and full staff lifecycle management.
+- [x] Tenant-scoped invitation listing (newest 200, with pending/expired/accepted/revoked status) and audited revocation of pending invitations.
+- [x] Tenant-scoped staff membership listing with public account details, statuses and role keys.
+- [x] Audited staff membership removal scoped to one tenant; protect owner and self memberships.
+- [x] Tenant-scoped role catalogue with permission keys and owner-role assignment protection.
+- [x] Audited role assignment/removal for other active non-owner memberships; prevent self-role changes and removal of a member's final role.
+- [ ] Custom role creation, permission-grant editing, email delivery, existing-account invitation linking and membership reactivation.
 - [x] Argon2id password hashing and verification.
 - [x] One-time first-run owner, tenant and business provisioning.
 - [x] Login, logout and current-user session endpoints with hashed opaque session tokens.
