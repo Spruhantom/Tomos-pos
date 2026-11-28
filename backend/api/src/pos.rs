@@ -518,6 +518,7 @@ pub struct CheckoutRequest {
     business_id: uuid::Uuid,
     location_id: uuid::Uuid,
     till_session_id: uuid::Uuid,
+    idempotency_key: uuid::Uuid,
     items: Vec<CheckoutItem>,
     payment_method: String,
     cash_received_minor: Option<i64>,
@@ -531,6 +532,19 @@ struct CheckoutProduct {
     name: String,
     unit_price_minor: i64,
     tax_rate_bps: i32,
+}
+
+#[derive(FromRow)]
+struct ExistingCheckout {
+    sale_id: uuid::Uuid,
+    sale_number: i64,
+    status: String,
+    tender_id: uuid::Uuid,
+    total_minor: i64,
+    tax_minor: i64,
+    change_due_minor: i64,
+    payment_method: String,
+    payment_status: String,
 }
 
 #[derive(Serialize)]
@@ -579,6 +593,69 @@ pub async fn checkout(
             return error(StatusCode::INTERNAL_SERVER_ERROR, "sale could not be created");
         }
     };
+    if let Err(db_error) = sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(request.idempotency_key.to_string())
+        .execute(&mut *tx)
+        .await
+    {
+        tracing::error!(%db_error, "checkout idempotency lock failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "sale could not be created",
+        );
+    }
+    let existing = match sqlx::query_as::<_, ExistingCheckout>(
+        "SELECT s.id AS sale_id, s.sale_number, s.status, pt.id AS tender_id, \
+         s.total_minor, s.tax_minor, pt.change_due_minor, pt.method AS payment_method, \
+         pt.status AS payment_status \
+         FROM sales s JOIN payment_tenders pt ON pt.tenant_id = s.tenant_id AND pt.sale_id = s.id \
+         WHERE s.tenant_id = $1 AND s.idempotency_key = $2 ORDER BY pt.created_at LIMIT 1",
+    )
+    .bind(context.tenant_id)
+    .bind(request.idempotency_key)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(existing) => existing,
+        Err(db_error) => {
+            tracing::error!(%db_error, "checkout idempotency lookup failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "sale could not be created",
+            );
+        }
+    };
+    if let Some(existing) = existing {
+        if let Err(db_error) = tx.commit().await {
+            tracing::error!(%db_error, "idempotent checkout commit failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "sale could not be created",
+            );
+        }
+        let message = if existing.payment_status == "captured" {
+            "This checkout was already completed; no duplicate payment was taken."
+        } else {
+            "This checkout already exists and its card-terminal payment is still pending."
+        };
+        return (
+            StatusCode::OK,
+            Json(CheckoutResponse {
+                sale_id: existing.sale_id,
+                sale_number: existing.sale_number,
+                status: existing.status,
+                tender_id: existing.tender_id,
+                total_minor: existing.total_minor,
+                tax_minor: existing.tax_minor,
+                change_due_minor: existing.change_due_minor,
+                payment_method: existing.payment_method,
+                payment_status: existing.payment_status,
+                message,
+            }),
+        )
+            .into_response();
+    }
+
     let locked_till: Option<uuid::Uuid> = match sqlx::query_scalar(
         "SELECT id FROM till_sessions WHERE tenant_id = $1 AND id = $2 \
          AND business_id = $3 AND location_id = $4 AND status = 'open' FOR UPDATE",
@@ -695,8 +772,8 @@ pub async fn checkout(
 
     let sale_status = if is_cash { "completed" } else { "awaiting_payment" };
     let sale_id = match sqlx::query_scalar::<_, uuid::Uuid>(
-        "INSERT INTO sales (tenant_id,business_id,location_id,till_session_id,cashier_user_id,sale_number,status,currency_code,subtotal_minor,tax_minor,total_minor,completed_at) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,CASE WHEN $7 = 'completed' THEN now() ELSE NULL END) RETURNING id",
+        "INSERT INTO sales (tenant_id,business_id,location_id,till_session_id,cashier_user_id,sale_number,idempotency_key,status,currency_code,subtotal_minor,tax_minor,total_minor,completed_at) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CASE WHEN $8 = 'completed' THEN now() ELSE NULL END) RETURNING id",
     )
     .bind(context.tenant_id)
     .bind(request.business_id)
@@ -704,6 +781,7 @@ pub async fn checkout(
     .bind(request.till_session_id)
     .bind(context.user_id)
     .bind(counter)
+    .bind(request.idempotency_key)
     .bind(sale_status)
     .bind(&currency)
     .bind(subtotal)
