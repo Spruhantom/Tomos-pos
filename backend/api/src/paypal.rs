@@ -231,6 +231,10 @@ pub struct OnboardingReturn {
     permissions_granted: bool,
     #[serde(rename = "consentStatus")]
     consent_status: bool,
+    #[serde(rename = "isEmailConfirmed")]
+    email_confirmed: bool,
+    #[serde(rename = "accountStatus")]
+    account_status: Option<String>,
 }
 
 pub async fn onboarding_return(
@@ -271,7 +275,10 @@ pub async fn onboarding_return(
         tracing::error!(%err, "PayPal callback tenant context failed");
         return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal connection could not be completed");
     }
-    let connected = query.permissions_granted && query.consent_status;
+    let connected = query.permissions_granted
+        && query.consent_status
+        && query.email_confirmed
+        && query.account_status.as_deref() == Some("BUSINESS_ACCOUNT");
     let update = sqlx::query(
         "UPDATE business_paypal_accounts SET merchant_id = $3, \
          onboarding_status = CASE WHEN $4 THEN 'connected' ELSE 'pending' END, \
