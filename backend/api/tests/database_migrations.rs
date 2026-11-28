@@ -50,6 +50,7 @@ async fn migrations_create_identity_schema_and_tenant_policies() {
         "sumup_webhook_tokens",
         "pos_sales",
         "pos_products",
+        "pos_sale_lines",
     ] {
         let exists: bool =
             sqlx::query_scalar("SELECT to_regclass(format('public.%I', $1)) IS NOT NULL")
@@ -74,12 +75,13 @@ async fn migrations_create_identity_schema_and_tenant_policies() {
         "sumup_payment_attempts",
         "pos_sales",
         "pos_products",
+        "pos_sale_lines",
     ])
     .fetch_one(&pool)
     .await
     .expect("row-level security metadata query should succeed");
 
-    assert_eq!(protected_tables, 8, "tenant-owned tables must enable RLS");
+    assert_eq!(protected_tables, 9, "tenant-owned tables must enable RLS");
 
     pool.close().await;
 }
@@ -107,7 +109,7 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
 
     sqlx::query(
         "GRANT SELECT ON tenants, businesses, business_locations, tenant_memberships, audit_events, \
-         pos_sales, pos_products, sumup_payment_attempts TO tomos_pos_rls_test",
+         pos_sales, pos_products, pos_sale_lines, sumup_payment_attempts TO tomos_pos_rls_test",
     )
     .execute(&pool)
     .await
@@ -187,21 +189,36 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     .await
     .expect("tenant B sale should be created");
 
-    for (tenant_id, user_id, sku, name) in [
-        (tenant_a, user_a, "A-001", "Tenant A product"),
-        (tenant_b, user_b, "B-001", "Tenant B product"),
+    for (tenant_id, user_id, sale_id, sku, name) in [
+        (tenant_a, user_a, sale_a, "A-001", "Tenant A product"),
+        (tenant_b, user_b, sale_b, "B-001", "Tenant B product"),
     ] {
-        sqlx::query(
+        let product_id: uuid::Uuid = sqlx::query_scalar(
             "INSERT INTO pos_products (tenant_id, sku, name, unit_price_minor, currency, created_by) \
-             VALUES ($1, $2, $3, 999, 'GBP', $4)",
+             VALUES ($1, $2, $3, 999, 'GBP', $4) RETURNING id",
         )
         .bind(tenant_id)
         .bind(sku)
         .bind(name)
         .bind(user_id)
-        .execute(&pool)
+        .fetch_one(&pool)
         .await
         .expect("tenant product should be created");
+
+        sqlx::query(
+            "INSERT INTO pos_sale_lines \
+             (tenant_id, sale_id, product_id, product_name, product_sku, quantity, \
+              unit_price_minor, tax_rate_bps, net_minor, tax_minor, gross_minor) \
+             VALUES ($1, $2, $3, $4, $5, 1, 999, 0, 999, 0, 999)",
+        )
+        .bind(tenant_id)
+        .bind(sale_id)
+        .bind(product_id)
+        .bind(name)
+        .bind(sku)
+        .execute(&pool)
+        .await
+        .expect("tenant sale-line snapshot should be created");
     }
 
     for (tenant_id, sale_id, suffix) in [(tenant_a, sale_a, "a"), (tenant_b, sale_b, "b")] {
@@ -265,6 +282,10 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         .fetch_one(&mut *tx)
         .await
         .expect("product query without tenant context should succeed");
+    let sale_lines_without_context: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos_sale_lines")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("sale-line query without tenant context should succeed");
     assert_eq!(
         sales_without_context, 0,
         "no tenant context must hide sales"
@@ -276,6 +297,10 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     assert_eq!(
         products_without_context, 0,
         "no tenant context must hide products"
+    );
+    assert_eq!(
+        sale_lines_without_context, 0,
+        "no tenant context must hide sale-line snapshots"
     );
 
     let without_context: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM businesses")
@@ -305,6 +330,10 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         .fetch_one(&mut *tx)
         .await
         .expect("tenant-scoped product query should succeed");
+    let visible_sale_lines: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos_sale_lines")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("tenant-scoped sale-line query should succeed");
     assert_eq!(visible_sales, 1, "tenant A must see only its own sale");
     assert_eq!(
         visible_attempts, 1,
@@ -313,6 +342,10 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     assert_eq!(
         visible_products, 1,
         "tenant A must see only its own product"
+    );
+    assert_eq!(
+        visible_sale_lines, 1,
+        "tenant A must see only its own sale-line snapshot"
     );
 
     let visible: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM businesses")
