@@ -1867,7 +1867,9 @@ pub async fn remove_staff_role(
     .await
     {
         Ok(Some(role)) => role,
-        Ok(None) => return error(StatusCode.NOT_FOUND, "role assignment was not found"),
+        Ok(None) => {
+            return error(StatusCode::NOT_FOUND, "role assignment was not found");
+        }
         Err(db_error) => {
             tracing::error!(%db_error, "staff role assignment lookup failed");
             return error(
