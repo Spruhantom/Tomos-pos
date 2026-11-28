@@ -397,6 +397,30 @@ pub async fn close_till(
             return error(StatusCode::INTERNAL_SERVER_ERROR, "till could not be closed");
         }
     };
+    let pending_card_payments: i64 = match sqlx::query_scalar(
+        "SELECT COUNT(*) FROM payment_tenders pt JOIN sales s \
+         ON s.tenant_id = pt.tenant_id AND s.id = pt.sale_id \
+         WHERE pt.tenant_id = $1 AND s.till_session_id = $2 \
+         AND pt.method = 'card_terminal' AND pt.status = 'pending'",
+    )
+    .bind(context.tenant_id)
+    .bind(till_id)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(count) => count,
+        Err(db_error) => {
+            tracing::error!(%db_error, "pending card payment lookup failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "till could not be closed");
+        }
+    };
+    if pending_card_payments > 0 {
+        return error(
+            StatusCode::CONFLICT,
+            "pending card-terminal payments must be resolved before closing the till",
+        );
+    }
+
     let expected: Option<i64> = match sqlx::query_scalar(
         "SELECT ts.opening_float_minor \
          + COALESCE((SELECT SUM(pt.amount_minor) FROM payment_tenders pt JOIN sales s ON s.tenant_id = pt.tenant_id AND s.id = pt.sale_id WHERE pt.tenant_id = ts.tenant_id AND s.till_session_id = ts.id AND pt.method = 'cash' AND pt.status = 'captured'), 0) \
