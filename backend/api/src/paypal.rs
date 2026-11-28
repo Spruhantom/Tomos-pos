@@ -562,20 +562,25 @@ pub async fn capture_order(
             );
         }
     };
-    let row = match sqlx::query_as::<_, (String, String)>(
-        "SELECT t.provider_reference, p.merchant_id FROM payment_tenders t \
+    let row = match sqlx::query_as::<_, (Option<String>, Option<String>, String)>(
+        "SELECT t.provider_reference, p.merchant_id, t.status FROM payment_tenders t \
          JOIN sales s ON s.tenant_id = t.tenant_id AND s.id = t.sale_id \
-         JOIN business_paypal_accounts p ON p.tenant_id = s.tenant_id AND p.business_id = s.business_id \
-         WHERE t.tenant_id = $1 AND t.sale_id = $2 AND t.method = 'paypal' \
-         AND t.status = 'pending' AND t.provider_reference IS NOT NULL",
+         LEFT JOIN business_paypal_accounts p ON p.tenant_id = s.tenant_id AND p.business_id = s.business_id \
+         WHERE t.tenant_id = $1 AND t.sale_id = $2 AND t.method = 'paypal'",
     )
     .bind(context.tenant_id)
     .bind(sale_id)
     .fetch_optional(&mut *tx)
     .await
     {
-        Ok(Some(row)) => row,
-        Ok(None) => return error(StatusCode::NOT_FOUND, "pending PayPal order was not found"),
+        Ok(Some((_, _, status))) if status == "captured" => {
+            return Json(json!({ "sale_id": sale_id, "status": "completed", "paypal_status": "COMPLETED" })).into_response();
+        }
+        Ok(Some((Some(order_id), Some(merchant_id), status))) if status == "pending" => {
+            (order_id, merchant_id)
+        }
+        Ok(Some(_)) => return error(StatusCode::CONFLICT, "PayPal payment is no longer pending"),
+        Ok(None) => return error(StatusCode::NOT_FOUND, "PayPal order was not found"),
         Err(err) => {
             tracing::error!(%err, "PayPal capture lookup failed");
             return error(
