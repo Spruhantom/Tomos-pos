@@ -84,6 +84,7 @@ CREATE TABLE sales (
     till_session_id UUID NOT NULL,
     cashier_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     sale_number BIGINT NOT NULL,
+    idempotency_key UUID NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('awaiting_payment', 'completed', 'cancelled', 'refunded')),
     currency_code CHAR(3) NOT NULL,
     subtotal_minor BIGINT NOT NULL CHECK (subtotal_minor >= 0),
@@ -97,6 +98,7 @@ CREATE TABLE sales (
     FOREIGN KEY (tenant_id, till_session_id) REFERENCES till_sessions(tenant_id, id) ON DELETE RESTRICT,
     UNIQUE (tenant_id, id),
     UNIQUE (tenant_id, business_id, sale_number),
+    UNIQUE (tenant_id, idempotency_key),
     CHECK (total_minor = subtotal_minor + tax_minor),
     CHECK ((status = 'completed' AND completed_at IS NOT NULL)
         OR (status <> 'completed' AND completed_at IS NULL))
