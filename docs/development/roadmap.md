@@ -57,7 +57,9 @@
 - [x] Business settings, location management, staff invitations and membership removal screens.
 - [x] Custom role creation and permission selection screen.
 - [ ] End-to-end browser tests and accessibility review.
-- [ ] POS checkout shell and tenant branding configuration.
+- [x] Responsive till checkout shell with searchable catalogue, editable quantity controls, basket clearing and printable receipt view.
+- [ ] End-to-end browser tests and accessibility review.
+- [ ] Installable PWA, service worker and offline application shell.
 - [ ] Installable PWA, service worker and offline application shell.
 
 ## M4 — Catalogue and inventory
@@ -74,7 +76,9 @@
 - [x] VAT-inclusive line calculations using integer minor units and half-up tax rounding.
 - [ ] Basket editing/held sales and checkout UI.
 - [ ] Jurisdiction-specific tax rules and inclusive/exclusive pricing.
-- Till sessions, cash movements and receipts.
+- [x] Atomic cash tender collection with server-calculated change, immutable payment record, tenant RLS and audit event.
+- [x] Printable receipt view for completed cash sales.
+- [ ] Till sessions, opening floats, paid-in/paid-out cash movements and shift reconciliation.
 - Refunds, reversals and held sales.
 
 ## M6 — Payment adapters
