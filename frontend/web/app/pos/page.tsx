@@ -44,6 +44,7 @@ export default function PosPage() {
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card_terminal" | "paypal" | "sumup_terminal">("cash");
   const [customers, setCustomers] = useState<LoyaltyCustomer[]>([]);
   const [customerId, setCustomerId] = useState("");
+  const [rewardCode, setRewardCode] = useState("");
   const [sumupReaderId, setSumupReaderId] = useState("");
   const [sumupTransaction, setSumupTransaction] = useState("");
   const [sumupPaymentStatus, setSumupPaymentStatus] = useState("");
@@ -257,6 +258,7 @@ export default function PosPage() {
           items: cartLines.map((line) => ({ product_id: line.product.id, quantity: line.quantity })),
           payment_method: paymentMethod,
           ...(customerId ? { customer_id: customerId } : {}),
+          ...(rewardCode.trim() ? { reward_code: rewardCode.trim() } : {}),
           ...(paymentMethod === "cash" ? { cash_received_minor: receivedMinor } : paymentMethod === "card_terminal" ? { terminal_reference: terminalReference || null } : {}),
         },
       });
@@ -286,6 +288,7 @@ export default function PosPage() {
       setCheckoutKey(crypto.randomUUID());
       setCashReceived("");
       setTerminalReference("");
+      setRewardCode("");
     } catch (reason) { setError(messageOf(reason)); }
     finally { setBusy(false); }
   }
@@ -325,6 +328,7 @@ export default function PosPage() {
             <div className="pos-totals"><div><span>VAT included</span><b>{money(taxMinor, selectedBusiness?.currency_code)}</b></div><div className="pos-grand-total"><span>Total</span><b>{money(totalMinor, selectedBusiness?.currency_code)}</b></div></div>
             <div className="pos-payment">
               <label>Customer (optional)<select value={customerId} onChange={(event) => setCustomerId(event.target.value)}><option value="">No loyalty customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.display_name} · {customer.balance_points} pts</option>)}</select></label>
+              <label>Loyalty reward code (optional)<input value={rewardCode} onChange={(event) => setRewardCode(event.target.value)} placeholder="Enter an issued reward code" /></label>
               <p className="pos-eyebrow">PAYMENT METHOD</p>
               <div className="pos-payment-options"><button className={paymentMethod === "cash" ? "selected" : ""} onClick={() => setPaymentMethod("cash")}>Cash</button><button className={paymentMethod === "card_terminal" ? "selected" : ""} onClick={() => setPaymentMethod("card_terminal")}>Card terminal</button><button className={paymentMethod === "paypal" ? "selected" : ""} onClick={() => setPaymentMethod("paypal")}>PayPal</button><button className={paymentMethod === "sumup_terminal" ? "selected" : ""} onClick={() => setPaymentMethod("sumup_terminal")}>SumUp</button></div>
               {paymentMethod === "cash" ? <label>Cash received (£)<input inputMode="decimal" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} placeholder="0.00" /></label> : paymentMethod === "card_terminal" ?
