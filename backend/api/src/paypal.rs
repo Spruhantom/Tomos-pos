@@ -309,9 +309,9 @@ pub async fn onboarding_return(
         Err(err) => {
             tracing::error!(%err, "PayPal callback transaction failed");
             return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "PayPal connection could not be completed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal connection could not be completed",
+        );
         }
     };
     if let Err(err) = sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
@@ -321,9 +321,9 @@ pub async fn onboarding_return(
     {
         tracing::error!(%err, "PayPal callback tenant context failed");
         return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "PayPal connection could not be completed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal connection could not be completed",
+        );
     }
     let connected = query.permissions_granted && query.consent_status && query.email_confirmed;
     let update = sqlx::query(
@@ -343,9 +343,9 @@ pub async fn onboarding_return(
     if let Err(err) = update {
         tracing::error!(%err, "PayPal merchant connection update failed");
         return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "PayPal connection could not be completed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal connection could not be completed",
+        );
     }
     let _ = sqlx::query(
         "UPDATE paypal_onboarding_sessions SET completed_at = now() WHERE tracking_id = $1",
@@ -356,14 +356,18 @@ pub async fn onboarding_return(
     if let Err(err) = tx.commit().await {
         tracing::error!(%err, "PayPal callback commit failed");
         return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "PayPal connection could not be completed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal connection could not be completed",
+        );
     }
     let destination = std::env::var("APP_ORIGIN").unwrap_or_else(|_| "/".to_string());
     Redirect::to(&format!(
         "{destination}/?paypal={}",
-        if connected { "connected" } else { "consent_required" }
+        if connected {
+            "connected"
+        } else {
+            "consent_required"
+        }
     ))
     .into_response()
 }
@@ -748,8 +752,7 @@ pub async fn webhook(
     ) {
         return StatusCode::NO_CONTENT.into_response();
     }
-    let custom_id = event["resource"]["custom_id"].as_str()
-        .unwrap_or("");
+    let custom_id = event["resource"]["custom_id"].as_str().unwrap_or("");
     let Some((tenant, sale)) = custom_id.split_once(':') else {
         return StatusCode::NO_CONTENT.into_response();
     };
@@ -762,9 +765,9 @@ pub async fn webhook(
         Err(err) => {
             tracing::error!(%err, "PayPal webhook transaction failed");
             return error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "webhook could not be processed",
-        );
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "webhook could not be processed",
+            );
         }
     };
     if let Err(err) = sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
@@ -774,9 +777,9 @@ pub async fn webhook(
     {
         tracing::error!(%err, "PayPal webhook tenant context failed");
         return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "webhook could not be processed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "webhook could not be processed",
+        );
     }
     let order_id = event["resource"]["supplementary_data"]["related_ids"]["order_id"]
         .as_str()
@@ -800,9 +803,9 @@ pub async fn webhook(
     if let Err(err) = update {
         tracing::error!(%err, "PayPal webhook tender update failed");
         return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "webhook could not be processed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "webhook could not be processed",
+        );
     }
     if let Err(err) = sqlx::query(
         "UPDATE sales SET status = $3, completed_at = CASE WHEN $3 = 'completed' THEN now() ELSE NULL END \
@@ -818,16 +821,16 @@ pub async fn webhook(
     {
         tracing::error!(%err, "PayPal webhook sale update failed");
         return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "webhook could not be processed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "webhook could not be processed",
+        );
     }
     if let Err(err) = tx.commit().await {
         tracing::error!(%err, "PayPal webhook commit failed");
         return error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "webhook could not be processed",
-            );
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "webhook could not be processed",
+        );
     }
     StatusCode::NO_CONTENT.into_response()
 }
@@ -863,7 +866,10 @@ pub async fn cancel_order(
         Ok(result) => result.rows_affected() == 1,
         Err(err) => {
             tracing::error!(%err, "PayPal tender cancellation failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal checkout could not be cancelled");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PayPal checkout could not be cancelled",
+            );
         }
     };
     if !cancelled {
@@ -878,11 +884,17 @@ pub async fn cancel_order(
     .await
     {
         tracing::error!(%err, "PayPal sale cancellation failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal checkout could not be cancelled");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal checkout could not be cancelled",
+        );
     }
     if let Err(err) = tx.commit().await {
         tracing::error!(%err, "PayPal cancellation commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal checkout could not be cancelled");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal checkout could not be cancelled",
+        );
     }
     Json(json!({ "sale_id": sale_id, "status": "cancelled" })).into_response()
 }
