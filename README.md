@@ -68,6 +68,8 @@ The API exposes `GET /health/live`, database-backed `GET /health/ready`, and ini
 - [Development roadmap](docs/development/roadmap.md)
 - [Security and data principles](docs/security/requirements.md)
 - [Authentication API](docs/api/authentication.md)
+- [Sales API](docs/api/sales.md)
+- [SumUp integration guide](docs/integrations/sumup.md)
 - [Database and tenant model](docs/database/tenant-model.md)
 
 ## Important

@@ -61,6 +61,10 @@
 - [ ] Installable PWA, service worker and offline application shell.
 
 ## M4 — Catalogue and inventory
+- [x] Tenant-scoped product catalogue schema with SKU/barcode uniqueness and tax-rate metadata.
+- [x] Product create/list API with name, SKU and barcode search, tenant permissions and audit events.
+- [x] Product catalogue row-level security integration coverage.
+- [ ] Product update/archive workflow.
 - Products, services, categories, variants and barcodes.
 - Stock locations and immutable stock movements.
 - Suppliers, purchase orders and goods receiving.
@@ -73,6 +77,11 @@
 
 ## M6 — Payment adapters
 - Cash and bank transfer states.
+- [x] SumUp Solo Cloud API bridge foundation and API webhook receiver with per-attempt callback tokens, tenant-scoped persistence, merchant/reference matching and idempotent final-state transitions.
+- [x] Basic tenant-scoped sale amount records, authenticated Solo checkout initiation and sale-status lookup routes.
+- [x] Successful webhook atomically settles unpaid sale and records payment audit event.
+- [x] Ambiguous network/5xx checkout outcomes remain pending for reconciliation; definitive 4xx provider rejections are marked failed.
+- [ ] Full basket/tax/receipt integration and provider reconciliation.
 - Sandbox integration for selected card/payment-link providers.
 - Signed webhook processing, idempotency and reconciliation.
 - Provider and terminal capability matrix.
