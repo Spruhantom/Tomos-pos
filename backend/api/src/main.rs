@@ -150,6 +150,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/api/v1/staff/roles",
             get(auth::list_staff_roles)
+                .post(auth::create_custom_role)
                 .route_layer(from_fn_with_state(
                     auth::PermissionState {
                         auth: auth_state.clone(),
@@ -162,18 +163,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/api/v1/staff/permissions",
             get(auth::list_permission_catalogue)
-                .route_layer(from_fn_with_state(
-                    auth::PermissionState {
-                        auth: auth_state.clone(),
-                        permission_key: "roles.manage",
-                    },
-                    auth::require_permission,
-                ))
-                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
-        )
-        .route(
-            "/api/v1/staff/roles",
-            post(auth::create_custom_role)
                 .route_layer(from_fn_with_state(
                     auth::PermissionState {
                         auth: auth_state.clone(),
