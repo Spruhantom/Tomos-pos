@@ -16,6 +16,9 @@ pub enum AuditEventType {
     CashMovementRecorded,
     SaleCreated,
     CardPaymentInitiated,
+    PaypalPaymentInitiated,
+    PaypalPaymentCaptured,
+    PaypalPaymentCancelled,
     PaymentTenderCreated,
     StaffInvited,
     StaffInvitationAccepted,
@@ -39,6 +42,9 @@ impl AuditEventType {
             Self::CashMovementRecorded => "till.cash_movement_recorded",
             Self::SaleCreated => "sale.created",
             Self::CardPaymentInitiated => "payment.card_initiated",
+            Self::PaypalPaymentInitiated => "payment.paypal_initiated",
+            Self::PaypalPaymentCaptured => "payment.paypal_captured",
+            Self::PaypalPaymentCancelled => "payment.paypal_cancelled",
             Self::PaymentTenderCreated => "payment.tender_created",
             Self::StaffInvited => "staff.invited",
             Self::StaffInvitationAccepted => "staff.invitation_accepted",
@@ -123,6 +129,9 @@ mod tests {
         assert_eq!(AuditEntityType::Location.as_str(), "business_location");
         assert_eq!(AuditEventType::ProductCreated.as_str(), "product.created");
         assert_eq!(AuditEventType::SaleCreated.as_str(), "sale.created");
+        assert_eq!(AuditEventType::PaypalPaymentInitiated.as_str(), "payment.paypal_initiated");
+        assert_eq!(AuditEventType::PaypalPaymentCaptured.as_str(), "payment.paypal_captured");
+        assert_eq!(AuditEventType::PaypalPaymentCancelled.as_str(), "payment.paypal_cancelled");
         assert_eq!(AuditEntityType::Sale.as_str(), "sale");
         assert_eq!(AuditEntityType::Tender.as_str(), "payment_tender");
         assert_eq!(
