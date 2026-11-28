@@ -4,7 +4,6 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     Json,
 };
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -544,7 +543,6 @@ pub async fn start_reader_checkout(
         "total_amount": { "currency": sale.currency_code, "minor_unit": 2, "value": sale.total_minor },
         "affiliate": affiliate_key,
         "return_url": return_url,
-        "client_transaction_id": client_transaction_id
     });
     let created = match reqwest::Client::new()
         .post(format!("{API_BASE}/v0.1/merchants/{merchant}/readers/{}/checkout", request.reader_id))
