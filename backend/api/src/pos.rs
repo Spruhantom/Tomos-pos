@@ -874,7 +874,7 @@ pub async fn checkout(
         Some(tender_id),
         serde_json::json!({
             "sale_id": sale_id,
-            "method": request.payment_method,
+            "method": request.payment_method.clone(),
             "status": payment_status,
             "amount_minor": total
         }),
