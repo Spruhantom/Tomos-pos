@@ -73,12 +73,14 @@ pub async fn create_sale(
 ) -> Result<(StatusCode, Json<SaleResponse>), StatusCode> {
     if request.amount_minor == 0
         || request.currency.len() != 3
-        || !request.currency.bytes().all(|byte| byte.is_ascii_uppercase())
+        || !request
+            .currency
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase())
     {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let amount_minor =
-        i64::try_from(request.amount_minor).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let amount_minor = i64::try_from(request.amount_minor).map_err(|_| StatusCode::BAD_REQUEST)?;
 
     let mut tx = auth::begin_tenant_transaction(&state, &context)
         .await
@@ -193,7 +195,11 @@ pub async fn start_sumup_payment(
 
     if let Err(error) = client.create_checkout(&checkout).await {
         tracing::error!(%error, sale_id = %sale.id, attempt_id = %attempt.id, "SumUp rejected checkout initiation");
-        let mut failure_tx = state.db.begin().await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        let mut failure_tx = state
+            .db
+            .begin()
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
             .bind(context.tenant_id.to_string())
             .execute(&mut *failure_tx)
@@ -208,7 +214,10 @@ pub async fn start_sumup_payment(
         .execute(&mut *failure_tx)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        failure_tx.commit().await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        failure_tx
+            .commit()
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         return Err(StatusCode::BAD_GATEWAY);
     }
 
