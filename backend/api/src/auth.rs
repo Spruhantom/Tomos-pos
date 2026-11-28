@@ -1100,7 +1100,7 @@ struct StaffInvitationListItem {
     expires_at: String,
     accepted_at: Option<String>,
     revoked_at: Option<String>,
-    status: &'static str,
+    status: String,
 }
 
 #[derive(FromRow)]
