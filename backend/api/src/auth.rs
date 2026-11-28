@@ -1421,9 +1421,9 @@ pub async fn accept_staff_invitation(
     {
         Ok(id) => id,
         Err(db_error)
-            if db_error
-                .as_database_error()
-                .is_some_and(|database_error| database_error.code().as_deref() == Some("23505")) =>
+            if db_error.as_database_error().is_some_and(|database_error| {
+                database_error.code().as_deref() == Some("23505")
+            }) =>
         {
             // Another invitation may have created this global account after the
             // earlier existence check. Treat the unique-email race as a conflict.
