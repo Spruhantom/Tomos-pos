@@ -50,16 +50,24 @@ export default function PosPage() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    const saleId = new URLSearchParams(window.location.search).get("paypal_sale_id");
-    if (!saleId || !tenantId) return;
+    const params = new URLSearchParams(window.location.search);
+    const saleId = params.get("paypal_sale_id");
+    const cancelledSaleId = params.get("paypal_cancelled");
+    if ((!saleId && !cancelledSaleId) || !tenantId) return;
     let active = true;
-    setBusy(true); setError(""); setNotice("Confirming PayPal payment…");
-    api<{ status: string }>(`pos/sales/${saleId}/paypal/capture`, { method: "POST", tenantId })
+    const cancelled = Boolean(cancelledSaleId);
+    const targetSaleId = saleId || cancelledSaleId;
+    setBusy(true); setError("");
+    setNotice(cancelled ? "Cancelling PayPal checkout…" : "Confirming PayPal payment…");
+    api<{ status: string }>(`pos/sales/${targetSaleId}/paypal/${cancelled ? "cancel" : "capture"}`, {
+      method: "POST", tenantId,
+    })
       .then(() => {
         if (!active) return;
-        setNotice("PayPal payment confirmed. The sale is complete.");
+        setNotice(cancelled ? "PayPal checkout was cancelled. No payment was recorded." : "PayPal payment confirmed. The sale is complete.");
         const url = new URL(window.location.href);
         url.searchParams.delete("paypal_sale_id");
+        url.searchParams.delete("paypal_cancelled");
         window.history.replaceState({}, "", url.toString());
       })
       .catch((reason) => { if (active) setError(messageOf(reason)); })
