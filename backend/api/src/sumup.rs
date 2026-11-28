@@ -4,7 +4,6 @@ use axum::{
     Json,
 };
 use rand::{rngs::OsRng, RngCore};
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
 use tomos_sumup_bridge::{PaymentAttempt, PaymentOutcome, SoloWebhookEvent, SOLO_TRANSACTION_UPDATED};
@@ -216,8 +215,3 @@ pub async fn webhook(
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct _WebhookShapeGuard {
-    event_type: String,
-}
