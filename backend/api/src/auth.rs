@@ -2531,12 +2531,12 @@ mod custom_role_validation_tests {
 
     #[test]
     fn permission_lists_reject_unknown_shape_and_duplicates() {
-        assert!(valid_permission_keys(&vec![
+        assert!(valid_permission_keys(&[
             "business.read".to_string(),
             "reports.read".to_string()
         ]));
         assert!(valid_permission_keys(&[]));
-        assert!(!valid_permission_keys(&vec![
+        assert!(!valid_permission_keys(&[
             "business.read".to_string(),
             "business.read".to_string()
         ]));
