@@ -1586,7 +1586,10 @@ pub async fn list_staff_memberships(
         Ok(tx) => tx,
         Err(db_error) => {
             tracing::error!(%db_error, "staff membership list transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "staff could not be listed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "staff could not be listed",
+            );
         }
     };
 
@@ -1612,25 +1615,33 @@ pub async fn list_staff_memberships(
         Ok(rows) => rows,
         Err(db_error) => {
             tracing::error!(%db_error, "staff membership list query failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "staff could not be listed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "staff could not be listed",
+            );
         }
     };
 
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "staff membership list transaction commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "staff could not be listed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "staff could not be listed",
+        );
     }
 
     let members = rows
         .into_iter()
-        .map(|row| serde_json::json!({
-            "membership_id": row.membership_id,
-            "user_id": row.user_id,
-            "email": row.email,
-            "display_name": row.display_name,
-            "status": row.status,
-            "roles": row.roles
-        }))
+        .map(|row| {
+            serde_json::json!({
+                "membership_id": row.membership_id,
+                "user_id": row.user_id,
+                "email": row.email,
+                "display_name": row.display_name,
+                "status": row.status,
+                "roles": row.roles
+            })
+        })
         .collect::<Vec<_>>();
 
     Json(serde_json::json!({ "members": members, "limit": 200 })).into_response()
@@ -1656,14 +1667,20 @@ pub async fn deactivate_staff_membership(
     }
 
     if membership_id == context.membership_id {
-        return error(StatusCode::CONFLICT, "you cannot remove your own membership");
+        return error(
+            StatusCode::CONFLICT,
+            "you cannot remove your own membership",
+        );
     }
 
     let mut tx = match begin_tenant_transaction(&state, &context).await {
         Ok(tx) => tx,
         Err(db_error) => {
             tracing::error!(%db_error, "staff membership deactivation transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "staff member could not be removed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "staff member could not be removed",
+            );
         }
     };
 
@@ -1685,18 +1702,29 @@ pub async fn deactivate_staff_membership(
     .await
     {
         Ok(Some(member)) => member,
-        Ok(None) => return error(StatusCode::NOT_FOUND, "staff membership was not found"),
+        Ok(None) => {
+            return error(StatusCode::NOT_FOUND, "staff membership was not found")
+        }
         Err(db_error) => {
             tracing::error!(%db_error, "staff membership deactivation lookup failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "staff member could not be removed");
+            return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "staff member could not be removed",
+        );
         }
     };
 
     if member.is_owner {
-        return error(StatusCode::CONFLICT, "owner memberships cannot be removed here");
+        return error(
+            StatusCode::CONFLICT,
+            "owner memberships cannot be removed here",
+        );
     }
     if member.status != "active" {
-        return error(StatusCode::CONFLICT, "only an active membership can be removed");
+        return error(
+            StatusCode::CONFLICT,
+            "only an active membership can be removed",
+        );
     }
 
     let updated = match sqlx::query(
@@ -1741,4 +1769,3 @@ pub async fn deactivate_staff_membership(
     let _ = member.user_id;
     StatusCode::NO_CONTENT.into_response()
 }
-
