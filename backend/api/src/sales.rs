@@ -8,6 +8,7 @@ use sqlx::FromRow;
 use tomos_sumup_bridge::{CheckoutRequest, Money, SumUpClient, SumUpConfig, SumUpError};
 
 use crate::{
+    audit::{self, AuditEntityType, AuditEventType},
     auth::{self, AuthContext, AuthState},
     sumup::{self, NewAttempt},
 };
@@ -108,6 +109,23 @@ pub async fn create_sale(
     .await
     .map_err(|error| {
         tracing::error!(%error, "sale record could not be created");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    audit::record_event(
+        &mut tx,
+        &context,
+        AuditEventType::SaleCreated,
+        AuditEntityType::Sale,
+        Some(sale.id),
+        serde_json::json!({
+            "amount_minor": sale.amount_minor,
+            "currency": sale.currency,
+        }),
+    )
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, sale_id = %sale.id, "sale creation audit event failed");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
