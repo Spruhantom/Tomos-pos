@@ -711,7 +711,7 @@ pub async fn checkout(
     let event = if is_cash { AuditEventType::SaleCreated } else { AuditEventType::CardPaymentInitiated };
     if let Err(db_error) = crate::audit::record_event(
         &mut tx, &context, event, AuditEntityType::Sale, Some(sale_id),
-        serde_json::json!({ "sale_number": counter, "total_minor": total, "currency_code": currency, "payment_method": request.payment_method, "payment_status": payment_status }),
+        serde_json::json!({ "sale_number": counter, "total_minor": total, "currency_code": currency, "payment_method": request.payment_method.clone(), "payment_status": payment_status }),
     ).await {
         tracing::error!(%db_error, "sale audit failed");
         return error(StatusCode::INTERNAL_SERVER_ERROR, "sale could not be created");
