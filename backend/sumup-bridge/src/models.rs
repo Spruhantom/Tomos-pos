@@ -31,10 +31,16 @@ impl CheckoutRequest {
             ));
         }
         if self.amount.value == 0 {
-            return Err(SumUpError::InvalidRequest(\n                "amount must be greater than zero".into(),\n            ));
+            return Err(SumUpError::InvalidRequest(
+                "amount must be greater than zero".into(),
+            ));
         }
         if self.amount.currency.len() != 3
-            || !self\n                .amount\n                .currency\n                .bytes()\n                .all(|byte| byte.is_ascii_uppercase())
+            || !self
+                .amount
+                .currency
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase())
         {
             return Err(SumUpError::InvalidRequest(
                 "currency must be a three-letter uppercase ISO 4217 code".into(),
@@ -88,7 +94,11 @@ mod tests {
         CheckoutRequest {
             reader_id: "reader-1".into(),
             client_transaction_id: "sale-unique-123".into(),
-            amount: Money {\n                currency: "GBP".into(),\n                minor_unit: 2,\n                value: 1250,\n            },
+            amount: Money {
+                currency: "GBP".into(),
+                minor_unit: 2,
+                value: 1250,
+            },
             return_url: "https://pos.example.test/api/v1/payments/sumup/webhook".into(),
         }
     }
