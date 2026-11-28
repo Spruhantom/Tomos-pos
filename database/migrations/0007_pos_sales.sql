@@ -29,7 +29,7 @@ ALTER TABLE sumup_payment_attempts
     FOREIGN KEY (tenant_id, sale_id)
     REFERENCES pos_sales(tenant_id, id) ON DELETE RESTRICT;
 
-CREATE INDEX sumup_pending_attempt_per_sale_idx
+CREATE UNIQUE INDEX sumup_one_pending_attempt_per_sale_idx
     ON sumup_payment_attempts(tenant_id, sale_id)
     WHERE status = 'pending';
 
