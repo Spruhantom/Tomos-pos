@@ -200,6 +200,17 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         "user context must reveal only the authenticated user's memberships"
     );
 
+    let visible_tenants: Vec<uuid::Uuid> =
+        sqlx::query_scalar("SELECT tenant_id FROM tenant_memberships ORDER BY tenant_id")
+            .fetch_all(&mut *tx)
+            .await
+            .expect("authenticated tenant discovery query should succeed");
+    assert_eq!(
+        visible_tenants,
+        vec![tenant_a],
+        "tenant discovery must return only the authenticated user's own tenant"
+    );
+
     let without_context: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM businesses")
         .fetch_one(&mut *tx)
         .await
