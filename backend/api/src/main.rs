@@ -512,11 +512,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/api/v1/calendar/appointments",
             get(calendar::list_appointments)
-                .post(calendar::create_appointment)
                 .route_layer(from_fn_with_state(
                     auth::PermissionState {
                         auth: auth_state.clone(),
                         permission_key: "calendar.read",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/calendar/appointments/create",
+            post(calendar::create_appointment)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "calendar.manage",
                     },
                     auth::require_permission,
                 ))
