@@ -695,3 +695,22 @@ pub async fn checkout(
     )
         .into_response()
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::tax_inclusive_amount;
+
+    #[test]
+    fn tax_is_extracted_from_tax_inclusive_prices_using_integer_minor_units() {
+        assert_eq!(tax_inclusive_amount(1_200, 2_000), Ok((1_000, 200)));
+        assert_eq!(tax_inclusive_amount(1_200, 0), Ok((1_200, 0)));
+        assert_eq!(tax_inclusive_amount(120, 2_000), Ok((100, 20)));
+    }
+
+    #[test]
+    fn tax_rounding_is_deterministic_for_small_values() {
+        assert_eq!(tax_inclusive_amount(1, 2_000), Ok((1, 0)));
+        assert_eq!(tax_inclusive_amount(6, 2_000), Ok((5, 1)));
+    }
+}
