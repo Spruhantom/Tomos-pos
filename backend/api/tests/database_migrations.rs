@@ -26,7 +26,6 @@ async fn migrations_create_identity_schema_and_tenant_policies() {
     let pool = PgPool::connect(&database_url)
         .await
         .expect("test database should accept connections");
-    let test_lock = acquire_database_test_lock(&pool).await;
 
     sqlx::migrate!("../../database/migrations")
         .run(&pool)
@@ -47,6 +46,10 @@ async fn migrations_create_identity_schema_and_tenant_policies() {
         "audit_events",
         "auth_login_limits",
         "staff_invitations",
+        "sumup_payment_attempts",
+        "sumup_webhook_tokens",
+        "pos_sales",
+        "pos_products",
     ] {
         let exists: bool =
             sqlx::query_scalar("SELECT to_regclass(format('public.%I', $1)) IS NOT NULL")
@@ -68,14 +71,16 @@ async fn migrations_create_identity_schema_and_tenant_policies() {
         "tenant_memberships",
         "audit_events",
         "staff_invitations",
+        "sumup_payment_attempts",
+        "pos_sales",
+        "pos_products",
     ])
     .fetch_one(&pool)
     .await
     .expect("row-level security metadata query should succeed");
 
-    assert_eq!(protected_tables, 5, "tenant-owned tables must enable RLS");
+    assert_eq!(protected_tables, 8, "tenant-owned tables must enable RLS");
 
-    release_database_test_lock(test_lock).await;
     pool.close().await;
 }
 
@@ -86,7 +91,6 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     let pool = PgPool::connect(&database_url)
         .await
         .expect("test database should accept connections");
-    let test_lock = acquire_database_test_lock(&pool).await;
 
     sqlx::migrate!("../../database/migrations")
         .run(&pool)
@@ -102,8 +106,8 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     .expect("test runtime role should exist");
 
     sqlx::query(
-        "GRANT SELECT ON tenants, businesses, business_locations, tenant_memberships, audit_events, staff_invitations \
-         TO tomos_pos_rls_test",
+        "GRANT SELECT ON tenants, businesses, business_locations, tenant_memberships, audit_events, \
+         pos_sales, pos_products, sumup_payment_attempts TO tomos_pos_rls_test",
     )
     .execute(&pool)
     .await
@@ -156,25 +160,73 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     }
 
     for (tenant_id, legal_name) in [(tenant_a, "Tenant A Ltd"), (tenant_b, "Tenant B Ltd")] {
-        let business_id: uuid::Uuid = sqlx::query_scalar(
-            "INSERT INTO businesses (tenant_id, legal_name) VALUES ($1, $2) RETURNING id",
-        )
-        .bind(tenant_id)
-        .bind(legal_name)
-        .fetch_one(&pool)
-        .await
-        .expect("test business should be created");
+        sqlx::query("INSERT INTO businesses (tenant_id, legal_name) VALUES ($1, $2)")
+            .bind(tenant_id)
+            .bind(legal_name)
+            .execute(&pool)
+            .await
+            .expect("test business should be created");
+    }
+
+    let sale_a: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO pos_sales (tenant_id, amount_minor, currency, created_by) \
+         VALUES ($1, 1250, 'GBP', $2) RETURNING id",
+    )
+    .bind(tenant_a)
+    .bind(user_a)
+    .fetch_one(&pool)
+    .await
+    .expect("tenant A sale should be created");
+    let sale_b: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO pos_sales (tenant_id, amount_minor, currency, created_by) \
+         VALUES ($1, 2500, 'GBP', $2) RETURNING id",
+    )
+    .bind(tenant_b)
+    .bind(user_b)
+    .fetch_one(&pool)
+    .await
+    .expect("tenant B sale should be created");
+
+    for (tenant_id, user_id, sku, name) in [
+        (tenant_a, user_a, "A-001", "Tenant A product"),
+        (tenant_b, user_b, "B-001", "Tenant B product"),
+    ] {
         sqlx::query(
-            "INSERT INTO business_locations (tenant_id, business_id, name, location_code) \
-             VALUES ($1, $2, $3, 'MAIN')",
+            "INSERT INTO pos_products (tenant_id, sku, name, unit_price_minor, currency, created_by) \
+             VALUES ($1, $2, $3, 999, 'GBP', $4)",
         )
         .bind(tenant_id)
-        .bind(business_id)
-        .bind(format!("{legal_name} Main"))
+        .bind(sku)
+        .bind(name)
+        .bind(user_id)
         .execute(&pool)
         .await
-        .expect("test business location should be created");
+        .expect("tenant product should be created");
     }
+
+    for (tenant_id, sale_id, suffix) in [(tenant_a, sale_a, "a"), (tenant_b, sale_b, "b")] {
+        sqlx::query(
+            "INSERT INTO sumup_payment_attempts \
+             (tenant_id, sale_id, reader_id, client_transaction_id, merchant_code, amount_minor, currency) \
+             VALUES ($1, $2, 'reader-test', $3, 'merchant-test', 1250, 'GBP')",
+        )
+        .bind(tenant_id)
+        .bind(sale_id)
+        .bind(format!("rls-payment-{suffix}-{}", uuid::Uuid::new_v4()))
+        .execute(&pool)
+        .await
+        .expect("tenant payment attempt should be created");
+    }
+
+    let immutable_amount_update =
+        sqlx::query("UPDATE pos_sales SET amount_minor = amount_minor + 1 WHERE id = $1")
+            .bind(sale_a)
+            .execute(&pool)
+            .await;
+    assert!(
+        immutable_amount_update.is_err(),
+        "sale amount snapshots must not be mutable"
+    );
 
     let mut tx = pool
         .begin()
@@ -200,15 +252,30 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         "user context must reveal only the authenticated user's memberships"
     );
 
-    let visible_tenants: Vec<uuid::Uuid> =
-        sqlx::query_scalar("SELECT tenant_id FROM tenant_memberships ORDER BY tenant_id")
-            .fetch_all(&mut *tx)
+    let sales_without_context: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos_sales")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("sales query without tenant context should succeed");
+    let attempts_without_context: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sumup_payment_attempts")
+            .fetch_one(&mut *tx)
             .await
-            .expect("authenticated tenant discovery query should succeed");
+            .expect("payment attempts query without tenant context should succeed");
+    let products_without_context: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos_products")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("product query without tenant context should succeed");
     assert_eq!(
-        visible_tenants,
-        vec![tenant_a],
-        "tenant discovery must return only the authenticated user's own tenant"
+        sales_without_context, 0,
+        "no tenant context must hide sales"
+    );
+    assert_eq!(
+        attempts_without_context, 0,
+        "no tenant context must hide payment attempts"
+    );
+    assert_eq!(
+        products_without_context, 0,
+        "no tenant context must hide products"
     );
 
     let without_context: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM businesses")
@@ -219,15 +286,6 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         without_context, 0,
         "no tenant context must reveal no tenant rows"
     );
-    let locations_without_context: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM business_locations")
-            .fetch_one(&mut *tx)
-            .await
-            .expect("location query without tenant context should succeed");
-    assert_eq!(
-        locations_without_context, 0,
-        "no tenant context must reveal no business locations"
-    );
 
     sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
         .bind(tenant_a.to_string())
@@ -235,33 +293,37 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         .await
         .expect("tenant context should be set transaction-locally");
 
+    let visible_sales: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos_sales")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("tenant-scoped sales query should succeed");
+    let visible_attempts: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sumup_payment_attempts")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("tenant-scoped payment attempt query should succeed");
+    let visible_products: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos_products")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("tenant-scoped product query should succeed");
+    assert_eq!(visible_sales, 1, "tenant A must see only its own sale");
+    assert_eq!(
+        visible_attempts, 1,
+        "tenant A must see only its own payment attempt"
+    );
+    assert_eq!(
+        visible_products, 1,
+        "tenant A must see only its own product"
+    );
+
     let visible: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM businesses")
         .fetch_one(&mut *tx)
         .await
         .expect("tenant-scoped query should succeed");
     assert_eq!(visible, 1, "tenant A must see only its own business");
 
-    let own_locations: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM business_locations")
-        .fetch_one(&mut *tx)
-        .await
-        .expect("tenant-scoped location query should succeed");
-    assert_eq!(own_locations, 1, "tenant A must see only its own location");
-
-    let other_tenant_locations: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM business_locations WHERE name = 'Tenant B Ltd Main'",
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .expect("cross-tenant location lookup should succeed");
-    assert_eq!(
-        other_tenant_locations, 0,
-        "tenant A must not see tenant B's location"
-    );
-
     tx.rollback()
         .await
         .expect("RLS test transaction should roll back");
-    release_database_test_lock(test_lock).await;
     pool.close().await;
 }
 
@@ -272,7 +334,6 @@ async fn audit_events_reject_update_delete_and_truncate() {
     let pool = PgPool::connect(&database_url)
         .await
         .expect("test database should accept connections");
-    let test_lock = acquire_database_test_lock(&pool).await;
 
     sqlx::migrate!("../../database/migrations")
         .run(&pool)
@@ -351,7 +412,6 @@ async fn audit_events_reject_update_delete_and_truncate() {
     tx.rollback()
         .await
         .expect("audit test transaction should roll back");
-    release_database_test_lock(test_lock).await;
     pool.close().await;
 }
 

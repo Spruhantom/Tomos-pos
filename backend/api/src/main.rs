@@ -1,8 +1,11 @@
 mod audit;
 mod auth;
+mod catalogue;
+mod sales;
+pub(crate) mod sumup;
 
 use axum::{
-    extract::{Extension, State},
+    extract::{DefaultBodyLimit, Extension, State},
     http::StatusCode,
     middleware::from_fn_with_state,
     routing::{delete, get, post, put},
@@ -288,6 +291,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     auth::PermissionState {
                         auth: auth_state.clone(),
                         permission_key: "business.read",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/payments/sumup/webhook/{token}",
+            post(sumup::webhook).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/api/v1/products",
+            get(catalogue::list_products)
+                .post(catalogue::create_product)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "catalogue.read",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/sales",
+            post(sales::create_sale)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "sales.manage",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/sales/{sale_id}",
+            get(sales::get_sale)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "sales.manage",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/sales/{sale_id}/payments/sumup",
+            post(sales::start_sumup_payment)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "sales.manage",
                     },
                     auth::require_permission,
                 ))
