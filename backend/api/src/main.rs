@@ -2,6 +2,7 @@ mod audit;
 mod auth;
 #[rustfmt::skip]
 mod pos;
+mod paypal;
 
 use axum::{
     extract::{Extension, State},
@@ -375,6 +376,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         auth: auth_state.clone(),
                         permission_key: "pos.checkout",
                     },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/paypal/connect",
+            post(paypal::connect_business)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState { auth: auth_state.clone(), permission_key: "business.manage" },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route("/api/v1/paypal/onboarding/return", get(paypal::onboarding_return))
+        .route("/api/v1/paypal/webhook", post(paypal::webhook))
+        .route(
+            "/api/v1/pos/sales/{sale_id}/paypal/order",
+            post(paypal::create_order)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState { auth: auth_state.clone(), permission_key: "pos.checkout" },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/pos/sales/{sale_id}/paypal/capture",
+            post(paypal::capture_order)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState { auth: auth_state.clone(), permission_key: "pos.checkout" },
                     auth::require_permission,
                 ))
                 .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
