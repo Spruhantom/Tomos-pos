@@ -405,6 +405,8 @@ async fn staff_invitation_rls_scopes_tenant_and_token_lookups() {
         "the presented token digest must reveal only its matching invitation"
     );
 
-    tx.rollback().await.expect("RLS transaction should roll back");
+    tx.rollback()
+        .await
+        .expect("RLS transaction should roll back");
     pool.close().await;
 }
