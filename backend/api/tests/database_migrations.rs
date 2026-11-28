@@ -14,9 +14,7 @@ async fn acquire_database_test_lock(
     connection
 }
 
-async fn release_database_test_lock(
-    mut connection: sqlx::pool::PoolConnection<sqlx::Postgres>,
-) {
+async fn release_database_test_lock(mut connection: sqlx::pool::PoolConnection<sqlx::Postgres>) {
     sqlx::query("SELECT pg_advisory_unlock(731942, 1)")
         .execute(&mut *connection)
         .await
