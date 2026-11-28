@@ -214,12 +214,12 @@ export default function IntegrationsPage() {
             <p>Connect each business to its own SumUp merchant account. Pair Solo readers in SumUp, then select a reader when taking a sale.</p>
             <p><strong>Connection:</strong> {sumup.status}{sumup.merchant_code ? ` · ${sumup.merchant_code}` : ""}</p>
             {sumup.status !== "connected" && <button disabled={busy || !businessId} onClick={() => void connect("sumup/connect")}>Connect SumUp business</button>}
-            {sumup.merchants.length > 1 && <label>Choose merchant account<select defaultValue="" onChange={(event) => event.target.value && void chooseMerchant(event.target.value)}><option value="" disabled>Select an authorised SumUp merchant</option>{sumup.merchants.map((merchant) => <option key={merchant.merchant_code} value={merchant.merchant_code}>{merchant.name} · {merchant.merchant_code}</option>)}</select></label>}
+            {sumup.status === "pending" && sumup.merchants.length > 1 && <label>Choose merchant account<select defaultValue="" onChange={(event) => event.target.value && void chooseMerchant(event.target.value)}><option value="" disabled>Select an authorised SumUp merchant</option>{sumup.merchants.map((merchant) => <option key={merchant.merchant_code} value={merchant.merchant_code}>{merchant.name} · {merchant.merchant_code}</option>)}</select></label>}
             {sumup.status === "connected" && <button className="pos-secondary-button" disabled={busy} onClick={() => void loadReaders()}>Load paired readers</button>}
             {!!readers.length && <pre className="pos-payment-note">{JSON.stringify(readers, null, 2)}</pre>}
             <small>Live reader payments require a SumUp OAuth application, approval for the payments scope, and an affiliate key for Cloud API card-present processing.</small>
           </section>
-          <section className="pos-panel">
+          <section className="pos-panel" id="calendar">
             <p className="pos-eyebrow">APPOINTMENT SYNCHRONISATION</p>
             <h2>SumUp Bookings ↔ Google Calendar ↔ TomOS</h2>
             <p>First enable SumUp Bookings calendar sync with the same Google Calendar in SumUp. TomOS then imports the calendar events and sends TomOS-created or edited appointments back to Google Calendar.</p>
@@ -254,7 +254,7 @@ export default function IntegrationsPage() {
           <p>Manage the POS and loyalty system from their own workspaces.</p>
           <a className="pos-secondary-button" href="/pos">Open checkout</a>
           <a className="pos-secondary-button" href="/loyalty">Open loyalty</a>
-          <a className="pos-secondary-button" href="/calendar">Open calendar</a>
+          <a className="pos-secondary-button" href="/integrations#calendar">Open calendar</a>
         </aside>
       </div>
     </main>
