@@ -1,14 +1,6 @@
 # Development roadmap
 
 
-## M3 — POS catalogue and sales
-- [x] Tenant-scoped product catalogue schema with SKU/barcode uniqueness and tax-rate metadata.
-- [x] Product create/list API with tenant permissions and audit events.
-- [x] Product catalogue row-level security integration coverage.
-- [ ] Product search by name, SKU and barcode; product update/archive workflow.
-- [ ] Itemised basket and immutable sale-line snapshots.
-- [ ] Tax calculation, discounts, receipts and inventory movements.
-
 ## M1 — Repository and development foundation
 - [x] Monorepo conventions and documentation.
 - [x] Rust workspace and Axum API bootstrap.
@@ -52,6 +44,10 @@
 - TomOS default theme and tenant branding configuration.
 
 ## M4 — Catalogue and inventory
+- [x] Tenant-scoped product catalogue schema with SKU/barcode uniqueness and tax-rate metadata.
+- [x] Product create/list API with name, SKU and barcode search, tenant permissions and audit events.
+- [x] Product catalogue row-level security integration coverage.
+- [ ] Product update/archive workflow.
 - Products, services, categories, variants and barcodes.
 - Stock locations and immutable stock movements.
 - Suppliers, purchase orders and goods receiving.
