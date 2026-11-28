@@ -450,10 +450,26 @@ pub async fn sync(
     let mut synced = 0_u32;
     for event in events {
         let Some(event_id) = event["id"].as_str() else { continue };
+        if event["status"] == "cancelled" {
+            if let Err(err) = sqlx::query(
+                "UPDATE appointments SET status='cancelled',last_synced_at=now(),updated_at=now() WHERE tenant_id=$1 AND business_id=$2 AND external_event_id=$3",
+            )
+            .bind(context.tenant_id)
+            .bind(request.business_id)
+            .bind(event_id)
+            .execute(&mut *tx)
+            .await
+            {
+                tracing::error!(%err, "cancelled Google Calendar event update failed");
+                return error(StatusCode::INTERNAL_SERVER_ERROR, "calendar events could not be synchronised");
+            }
+            synced += 1;
+            continue;
+        }
         let Some(start) = event_time(&event, "start") else { continue };
         let Some(end) = event_time(&event, "end") else { continue };
         let summary = event["summary"].as_str().unwrap_or("(No title)");
-        let status = if event["status"] == "cancelled" { "cancelled" } else { "confirmed" };
+        let status = "confirmed";
         let result = sqlx::query(
             "INSERT INTO appointments (tenant_id,business_id,external_event_id,source,summary,description,location,start_at,end_at,status,last_synced_at) \
              VALUES ($1,$2,$3,'google',$4,$5,$6,$7::timestamptz,$8::timestamptz,$9,now()) \
