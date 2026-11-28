@@ -824,3 +824,55 @@ pub async fn webhook(
     }
     StatusCode::NO_CONTENT.into_response()
 }
+
+pub async fn cancel_order(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    Path(sale_id): Path<uuid::Uuid>,
+    headers: HeaderMap,
+) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(err) => {
+            tracing::error!(%err, "PayPal cancellation transaction failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal checkout could not be cancelled");
+        }
+    };
+    let cancelled = match sqlx::query(
+        "UPDATE payment_tenders SET status = 'cancelled' \
+         WHERE tenant_id = $1 AND sale_id = $2 AND method = 'paypal' AND status = 'pending'",
+    )
+    .bind(context.tenant_id)
+    .bind(sale_id)
+    .execute(&mut *tx)
+    .await
+    {
+        Ok(result) => result.rows_affected() == 1,
+        Err(err) => {
+            tracing::error!(%err, "PayPal tender cancellation failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal checkout could not be cancelled");
+        }
+    };
+    if !cancelled {
+        return error(StatusCode::CONFLICT, "PayPal payment is no longer pending");
+    }
+    if let Err(err) = sqlx::query(
+        "UPDATE sales SET status = 'cancelled' WHERE tenant_id = $1 AND id = $2 AND status = 'awaiting_payment'",
+    )
+    .bind(context.tenant_id)
+    .bind(sale_id)
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(%err, "PayPal sale cancellation failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal checkout could not be cancelled");
+    }
+    if let Err(err) = tx.commit().await {
+        tracing::error!(%err, "PayPal cancellation commit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal checkout could not be cancelled");
+    }
+    Json(json!({ "sale_id": sale_id, "status": "cancelled" })).into_response()
+}
