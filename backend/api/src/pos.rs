@@ -590,7 +590,7 @@ pub async fn checkout(
     }
     if request.items.is_empty() || request.items.len() > 100
         || request.items.iter().any(|item| !(1..=10_000).contains(&item.quantity))
-        || !matches!(request.payment_method.as_str(), "cash" | "card_terminal")
+        || !matches!(request.payment_method.as_str(), "cash" | "card_terminal" | "paypal")
         || request.terminal_reference.as_ref().is_some_and(|value| value.trim().len() > 120)
     {
         return error(StatusCode::BAD_REQUEST, "checkout details are invalid");
@@ -837,7 +837,7 @@ pub async fn checkout(
     let change_due = if is_cash { received - total } else { 0 };
     let tender_id = match sqlx::query_scalar::<_, uuid::Uuid>(
         "INSERT INTO payment_tenders (tenant_id,sale_id,method,status,amount_minor,amount_received_minor,change_due_minor,provider_key,terminal_reference,created_by,captured_at) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,CASE WHEN $3 = 'card_terminal' THEN 'external_terminal' ELSE NULL END,$8,$9,CASE WHEN $4 = 'captured' THEN now() ELSE NULL END) RETURNING id",
+         VALUES ($1,$2,$3,$4,$5,$6,$7,CASE WHEN $3 = 'card_terminal' THEN 'external_terminal' WHEN $3 = 'paypal' THEN 'paypal' ELSE NULL END,$8,$9,CASE WHEN $4 = 'captured' THEN now() ELSE NULL END) RETURNING id",
     )
     .bind(context.tenant_id)
     .bind(sale_id)
@@ -895,7 +895,7 @@ pub async fn checkout(
     let message = if is_cash {
         "Cash payment recorded. Give the customer the displayed change."
     } else {
-        "Payment intent created. A configured terminal provider must confirm the card payment before the sale can be completed."
+        if request.payment_method == "paypal" { "PayPal order is pending. Complete the PayPal approval and capture before releasing the goods." } else { "Payment intent created. A configured terminal provider must confirm the card payment before the sale can be completed." }
     };
     (
         StatusCode::CREATED,
