@@ -47,6 +47,15 @@ async fn migrations_create_identity_schema_and_tenant_policies() {
         "audit_events",
         "auth_login_limits",
         "staff_invitations",
+        "products",
+        "business_sale_counters",
+        "till_sessions",
+        "sales",
+        "sale_items",
+        "payment_tenders",
+        "till_cash_movements",
+        "business_paypal_accounts",
+        "paypal_onboarding_sessions",
     ] {
         let exists: bool =
             sqlx::query_scalar("SELECT to_regclass(format('public.%I', $1)) IS NOT NULL")
@@ -68,12 +77,20 @@ async fn migrations_create_identity_schema_and_tenant_policies() {
         "tenant_memberships",
         "audit_events",
         "staff_invitations",
+        "products",
+        "business_sale_counters",
+        "till_sessions",
+        "sales",
+        "sale_items",
+        "payment_tenders",
+        "till_cash_movements",
+        "business_paypal_accounts",
     ])
     .fetch_one(&pool)
     .await
     .expect("row-level security metadata query should succeed");
 
-    assert_eq!(protected_tables, 5, "tenant-owned tables must enable RLS");
+    assert_eq!(protected_tables, 13, "tenant-owned tables must enable RLS");
 
     release_database_test_lock(test_lock).await;
     pool.close().await;

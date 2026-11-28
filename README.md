@@ -51,6 +51,8 @@ npm install
 npm run dev
 ```
 
+The management interface is available at `/`; the early checkout/till workspace is at `/pos`. See [POS checkout and payment API](docs/api/pos-checkout.md) for current endpoints and card-terminal limitations.
+
 Configure a same-origin reverse proxy for `/api/v1/*` to the Rust API. See [web interface setup](frontend/web/README.md).
 
 Run the API from the repository root:
