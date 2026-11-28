@@ -1,8 +1,6 @@
 use sqlx::PgPool;
 
-async fn acquire_database_test_lock(
-    pool: &PgPool,
-) -> sqlx::pool::PoolConnection<sqlx::Postgres> {
+async fn acquire_database_test_lock(pool: &PgPool) -> sqlx::pool::PoolConnection<sqlx::Postgres> {
     let mut connection = pool
         .acquire()
         .await
