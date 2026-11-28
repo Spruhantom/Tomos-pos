@@ -30,6 +30,7 @@ async fn migrations_create_identity_schema_and_tenant_policies() {
         "sumup_payment_attempts",
         "sumup_webhook_tokens",
         "pos_sales",
+        "pos_products",
     ] {
         let exists: bool =
             sqlx::query_scalar("SELECT to_regclass(format('public.%I', $1)) IS NOT NULL")
@@ -53,12 +54,13 @@ async fn migrations_create_identity_schema_and_tenant_policies() {
         "staff_invitations",
         "sumup_payment_attempts",
         "pos_sales",
+        "pos_products",
     ])
     .fetch_one(&pool)
     .await
     .expect("row-level security metadata query should succeed");
 
-    assert_eq!(protected_tables, 7, "tenant-owned tables must enable RLS");
+    assert_eq!(protected_tables, 8, "tenant-owned tables must enable RLS");
 
     pool.close().await;
 }
@@ -86,7 +88,7 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
 
     sqlx::query(
         "GRANT SELECT ON tenants, businesses, business_locations, tenant_memberships, audit_events, \
-         pos_sales, sumup_payment_attempts TO tomos_pos_rls_test",
+         pos_sales, pos_products, sumup_payment_attempts TO tomos_pos_rls_test",
     )
     .execute(&pool)
     .await
