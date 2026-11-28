@@ -502,6 +502,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
         )
         .route(
+            "/api/v1/sumup/payments/{client_transaction_id}",
+            get(sumup::payment_status)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "pos.checkout",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
             "/api/v1/sumup/reader-webhook",
             post(sumup::reader_webhook),
         )
