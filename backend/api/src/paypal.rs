@@ -35,8 +35,8 @@ struct PayPalConfig {
 impl PayPalConfig {
     fn from_env() -> Result<Self, &'static str> {
         let required = |key: &str| std::env::var(key).map_err(|_| "PayPal is not configured");
-        let sandbox = std::env::var("PAYPAL_ENVIRONMENT")
-            .unwrap_or_else(|_| "sandbox".to_string()) != "live";
+        let sandbox =
+            std::env::var("PAYPAL_ENVIRONMENT").unwrap_or_else(|_| "sandbox".to_string()) != "live";
         Ok(Self {
             client_id: required("PAYPAL_CLIENT_ID")?,
             client_secret: required("PAYPAL_CLIENT_SECRET")?,
@@ -64,7 +64,10 @@ impl PayPalConfig {
             .error_for_status()?
             .json::<Value>()
             .await?;
-        Ok(response["access_token"].as_str().unwrap_or_default().to_string())
+        Ok(response["access_token"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string())
     }
 
     fn auth_assertion(&self, merchant_id: &str) -> String {
@@ -104,7 +107,10 @@ pub async fn connect_business(
         Ok(tx) => tx,
         Err(db_error) => {
             tracing::error!(%db_error, "PayPal onboarding transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal connection could not be started");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PayPal connection could not be started",
+            );
         }
     };
     let business_exists: bool = match sqlx::query_scalar(
@@ -118,7 +124,10 @@ pub async fn connect_business(
         Ok(value) => value,
         Err(db_error) => {
             tracing::error!(%db_error, "PayPal business lookup failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal connection could not be started");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PayPal connection could not be started",
+            );
         }
     };
     if !business_exists {
@@ -127,7 +136,12 @@ pub async fn connect_business(
 
     let token = match config.access_token().await {
         Ok(token) if !token.is_empty() => token,
-        Ok(_) => return error(StatusCode::BAD_GATEWAY, "PayPal did not issue an access token"),
+        Ok(_) => {
+            return error(
+                StatusCode::BAD_GATEWAY,
+                "PayPal did not issue an access token",
+            )
+        }
         Err(err) => {
             tracing::error!(%err, "PayPal token request failed");
             return error(StatusCode::BAD_GATEWAY, "PayPal could not be reached");
@@ -162,7 +176,10 @@ pub async fn connect_business(
         Ok(response) => response,
         Err(err) => {
             tracing::error!(%err, "PayPal partner referral request failed");
-            return error(StatusCode::BAD_GATEWAY, "PayPal onboarding could not be started");
+            return error(
+                StatusCode::BAD_GATEWAY,
+                "PayPal onboarding could not be started",
+            );
         }
     };
     let referral_body = match response.error_for_status() {
@@ -170,12 +187,18 @@ pub async fn connect_business(
             Ok(body) => body,
             Err(err) => {
                 tracing::error!(%err, "PayPal referral response was invalid");
-                return error(StatusCode::BAD_GATEWAY, "PayPal returned an invalid onboarding response");
+                return error(
+                    StatusCode::BAD_GATEWAY,
+                    "PayPal returned an invalid onboarding response",
+                );
             }
         },
         Err(err) => {
             tracing::error!(%err, "PayPal rejected partner referral");
-            return error(StatusCode::BAD_GATEWAY, "PayPal rejected the onboarding request");
+            return error(
+                StatusCode::BAD_GATEWAY,
+                "PayPal rejected the onboarding request",
+            );
         }
     };
     let action_url = referral_body["links"]
@@ -185,7 +208,10 @@ pub async fn connect_business(
         .unwrap_or_default()
         .to_string();
     if action_url.is_empty() || !action_url.starts_with("https://") {
-        return error(StatusCode::BAD_GATEWAY, "PayPal did not return a valid onboarding link");
+        return error(
+            StatusCode::BAD_GATEWAY,
+            "PayPal did not return a valid onboarding link",
+        );
     }
 
     let saved = sqlx::query(
@@ -200,7 +226,10 @@ pub async fn connect_business(
     .await;
     if let Err(err) = saved {
         tracing::error!(%err, "PayPal account status could not be saved");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal connection could not be saved");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal connection could not be saved",
+        );
     }
     if let Err(err) = sqlx::query(
         "INSERT INTO paypal_onboarding_sessions (tracking_id, tenant_id, business_id) VALUES ($1, $2, $3)",
@@ -212,11 +241,17 @@ pub async fn connect_business(
     .await
     {
         tracing::error!(%err, "PayPal onboarding session could not be saved");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal connection could not be saved");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal connection could not be saved",
+        );
     }
     if let Err(err) = tx.commit().await {
         tracing::error!(%err, "PayPal onboarding transaction commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal connection could not be saved");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal connection could not be saved",
+        );
     }
     Json(json!({ "action_url": action_url, "status": "pending" })).into_response()
 }
@@ -242,7 +277,10 @@ pub async fn onboarding_return(
     Query(query): Query<OnboardingReturn>,
 ) -> Response {
     if query.merchant_id.trim().is_empty() || query.merchant_id.len() > 128 {
-        return error(StatusCode::BAD_REQUEST, "PayPal merchant details are invalid");
+        return error(
+            StatusCode::BAD_REQUEST,
+            "PayPal merchant details are invalid",
+        );
     }
     let session = match sqlx::query_as::<_, (uuid::Uuid, uuid::Uuid)>(
         "SELECT tenant_id, business_id FROM paypal_onboarding_sessions \
@@ -253,10 +291,18 @@ pub async fn onboarding_return(
     .await
     {
         Ok(Some(session)) => session,
-        Ok(None) => return error(StatusCode::GONE, "PayPal onboarding session expired or was already used"),
+        Ok(None) => {
+            return error(
+                StatusCode::GONE,
+                "PayPal onboarding session expired or was already used",
+            )
+        }
         Err(err) => {
             tracing::error!(%err, "PayPal onboarding session lookup failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal connection could not be completed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PayPal connection could not be completed",
+            );
         }
     };
     let (tenant_id, business_id) = session;
@@ -264,7 +310,10 @@ pub async fn onboarding_return(
         Ok(tx) => tx,
         Err(err) => {
             tracing::error!(%err, "PayPal callback transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal connection could not be completed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PayPal connection could not be completed",
+            );
         }
     };
     if let Err(err) = sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
@@ -273,7 +322,10 @@ pub async fn onboarding_return(
         .await
     {
         tracing::error!(%err, "PayPal callback tenant context failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal connection could not be completed");
+        return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PayPal connection could not be completed",
+            );
     }
     let connected = query.permissions_granted
         && query.consent_status
@@ -295,7 +347,10 @@ pub async fn onboarding_return(
     .await;
     if let Err(err) = update {
         tracing::error!(%err, "PayPal merchant connection update failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal connection could not be completed");
+        return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PayPal connection could not be completed",
+            );
     }
     let _ = sqlx::query("UPDATE paypal_onboarding_sessions SET completed_at = now() WHERE tracking_id = $1")
         .bind(query.tracking_id)
@@ -303,7 +358,10 @@ pub async fn onboarding_return(
         .await;
     if let Err(err) = tx.commit().await {
         tracing::error!(%err, "PayPal callback commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal connection could not be completed");
+        return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PayPal connection could not be completed",
+            );
     }
     let destination = std::env::var("APP_ORIGIN")
         .unwrap_or_else(|_| "/".to_string());
@@ -345,7 +403,10 @@ pub async fn create_order(
         Ok(tx) => tx,
         Err(err) => {
             tracing::error!(%err, "PayPal order transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal order could not be created");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PayPal order could not be created",
+            );
         }
     };
     let sale = match sqlx::query_as::<_, SaleForPayPal>(
@@ -366,14 +427,20 @@ pub async fn create_order(
         Ok(None) => return error(StatusCode::NOT_FOUND, "pending PayPal sale was not found"),
         Err(err) => {
             tracing::error!(%err, "PayPal sale lookup failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal order could not be created");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PayPal order could not be created",
+            );
         }
     };
     if sale.status != "awaiting_payment" {
         return error(StatusCode::CONFLICT, "sale is not awaiting payment");
     }
     let Some(merchant_id) = sale.merchant_id else {
-        return error(StatusCode::CONFLICT, "this business has not connected a PayPal account");
+        return error(
+            StatusCode::CONFLICT,
+            "this business has not connected a PayPal account",
+        );
     };
     let token = match config.access_token().await {
         Ok(token) if !token.is_empty() => token,
@@ -431,12 +498,19 @@ pub async fn create_order(
     let order_id = order["id"].as_str().unwrap_or_default().to_string();
     let approval_url = order["links"]
         .as_array()
-        .and_then(|links| links.iter().find(|link| link["rel"] == "approve" || link["rel"] == "payer-action"))
+        .and_then(|links| {
+            links
+                .iter()
+                .find(|link| link["rel"] == "approve" || link["rel"] == "payer-action")
+        })
         .and_then(|link| link["href"].as_str())
         .unwrap_or_default()
         .to_string();
     if order_id.is_empty() || approval_url.is_empty() || !approval_url.starts_with("https://") {
-        return error(StatusCode::BAD_GATEWAY, "PayPal returned an incomplete order");
+        return error(
+            StatusCode::BAD_GATEWAY,
+            "PayPal returned an incomplete order",
+        );
     }
     if let Err(err) = sqlx::query(
         "UPDATE payment_tenders SET provider_key = 'paypal', provider_reference = $3 \
@@ -449,13 +523,20 @@ pub async fn create_order(
     .await
     {
         tracing::error!(%err, "PayPal order reference could not be saved");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal order could not be saved");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal order could not be saved",
+        );
     }
     if let Err(err) = tx.commit().await {
         tracing::error!(%err, "PayPal order transaction commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal order could not be saved");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal order could not be saved",
+        );
     }
-    Json(json!({ "order_id": order_id, "approval_url": approval_url, "status": "pending" })).into_response()
+    Json(json!({ "order_id": order_id, "approval_url": approval_url, "status": "pending" }))
+        .into_response()
 }
 
 pub async fn capture_order(
@@ -475,7 +556,10 @@ pub async fn capture_order(
         Ok(tx) => tx,
         Err(err) => {
             tracing::error!(%err, "PayPal capture lookup transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal payment could not be captured");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PayPal payment could not be captured",
+            );
         }
     };
     let row = match sqlx::query_as::<_, (String, String)>(
@@ -494,7 +578,10 @@ pub async fn capture_order(
         Ok(None) => return error(StatusCode::NOT_FOUND, "pending PayPal order was not found"),
         Err(err) => {
             tracing::error!(%err, "PayPal capture lookup failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal payment could not be captured");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PayPal payment could not be captured",
+            );
         }
     };
     let (order_id, merchant_id) = row;
@@ -504,7 +591,10 @@ pub async fn capture_order(
     };
     let assertion = config.auth_assertion(&merchant_id);
     let response = match reqwest::Client::new()
-        .post(format!("{}/v2/checkout/orders/{}/capture", config.base_url, order_id))
+        .post(format!(
+            "{}/v2/checkout/orders/{}/capture",
+            config.base_url, order_id
+        ))
         .bearer_auth(token)
         .header("PayPal-Auth-Assertion", assertion)
         .header("PayPal-Request-Id", sale_id.to_string())
@@ -516,7 +606,10 @@ pub async fn capture_order(
         Ok(response) => response,
         Err(err) => {
             tracing::error!(%err, "PayPal capture request failed");
-            return error(StatusCode::BAD_GATEWAY, "PayPal capture could not be completed");
+            return error(
+                StatusCode::BAD_GATEWAY,
+                "PayPal capture could not be completed",
+            );
         }
     };
     let capture = match response.error_for_status() {
@@ -524,16 +617,25 @@ pub async fn capture_order(
             Ok(value) => value,
             Err(err) => {
                 tracing::error!(%err, "PayPal capture response invalid");
-                return error(StatusCode::BAD_GATEWAY, "PayPal returned an invalid capture response");
+                return error(
+                    StatusCode::BAD_GATEWAY,
+                    "PayPal returned an invalid capture response",
+                );
             }
         },
         Err(err) => {
             tracing::error!(%err, "PayPal rejected capture");
-            return error(StatusCode::BAD_GATEWAY, "PayPal rejected the payment capture");
+            return error(
+                StatusCode::BAD_GATEWAY,
+                "PayPal rejected the payment capture",
+            );
         }
     };
     if capture["status"] != "COMPLETED" {
-        return error(StatusCode::CONFLICT, "PayPal has not confirmed the payment as completed");
+        return error(
+            StatusCode::CONFLICT,
+            "PayPal has not confirmed the payment as completed",
+        );
     }
     if let Err(err) = sqlx::query(
         "UPDATE payment_tenders SET status = 'captured', captured_at = now() \
@@ -545,7 +647,10 @@ pub async fn capture_order(
     .await
     {
         tracing::error!(%err, "PayPal tender capture update failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal payment could not be recorded");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal payment could not be recorded",
+        );
     }
     if let Err(err) = sqlx::query(
         "UPDATE sales SET status = 'completed', completed_at = now() \
@@ -557,13 +662,20 @@ pub async fn capture_order(
     .await
     {
         tracing::error!(%err, "PayPal sale completion update failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal sale could not be completed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal sale could not be completed",
+        );
     }
     if let Err(err) = tx.commit().await {
         tracing::error!(%err, "PayPal capture transaction commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal payment could not be recorded");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "PayPal payment could not be recorded",
+        );
     }
-    Json(json!({ "sale_id": sale_id, "status": "completed", "paypal_status": "COMPLETED" })).into_response()
+    Json(json!({ "sale_id": sale_id, "status": "completed", "paypal_status": "COMPLETED" }))
+        .into_response()
 }
 
 pub async fn webhook(
@@ -573,13 +685,23 @@ pub async fn webhook(
 ) -> Response {
     let config = match PayPalConfig::from_env() {
         Ok(config) if !config.webhook_id.is_empty() => config,
-        _ => return error(StatusCode::SERVICE_UNAVAILABLE, "PayPal webhook is not configured"),
+        _ => {
+            return error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "PayPal webhook is not configured",
+            )
+        }
     };
     let token = match config.access_token().await {
         Ok(token) if !token.is_empty() => token,
         _ => return error(StatusCode::BAD_GATEWAY, "PayPal authentication failed"),
     };
-    let header_value = |name: &str| headers.get(name).and_then(|value| value.to_str().ok()).unwrap_or("");
+    let header_value = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("")
+    };
     let verification = json!({
         "auth_algo": header_value("paypal-auth-algo"),
         "cert_url": header_value("paypal-cert-url"),
@@ -590,7 +712,10 @@ pub async fn webhook(
         "webhook_event": event.clone()
     });
     let verified = match reqwest::Client::new()
-        .post(format!("{}/v1/notifications/verify-webhook-signature", config.base_url))
+        .post(format!(
+            "{}/v1/notifications/verify-webhook-signature",
+            config.base_url
+        ))
         .bearer_auth(token)
         .json(&verification)
         .send()
@@ -602,25 +727,37 @@ pub async fn webhook(
         },
         Err(_) => None,
     };
-    if verified.as_ref().is_none_or(|body| body["verification_status"] != "SUCCESS") {
-        return error(StatusCode::UNAUTHORIZED, "PayPal webhook signature is invalid");
+    if verified
+        .as_ref()
+        .is_none_or(|body| body["verification_status"] != "SUCCESS")
+    {
+        return error(
+            StatusCode::UNAUTHORIZED,
+            "PayPal webhook signature is invalid",
+        );
     }
-    let event_type = event["event_type"].as_str().unwrap_or("");
+    let event_type = event["event_type"].as_str()
+        .unwrap_or("");
     if !matches!(event_type, "PAYMENT.CAPTURE.COMPLETED" | "PAYMENT.CAPTURE.DENIED") {
         return StatusCode::NO_CONTENT.into_response();
     }
-    let custom_id = event["resource"]["custom_id"].as_str().unwrap_or("");
+    let custom_id = event["resource"]["custom_id"].as_str()
+        .unwrap_or("");
     let Some((tenant, sale)) = custom_id.split_once(':') else {
         return StatusCode::NO_CONTENT.into_response();
     };
-    let (Ok(tenant_id), Ok(sale_id)) = (uuid::Uuid::parse_str(tenant), uuid::Uuid::parse_str(sale)) else {
+    let (Ok(tenant_id), Ok(sale_id)) = (uuid::Uuid::parse_str(tenant), uuid::Uuid::parse_str(sale))
+    else {
         return StatusCode::NO_CONTENT.into_response();
     };
     let mut tx = match state.db.begin().await {
         Ok(tx) => tx,
         Err(err) => {
             tracing::error!(%err, "PayPal webhook transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "webhook could not be processed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "webhook could not be processed",
+            );
         }
     };
     if let Err(err) = sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
@@ -629,10 +766,14 @@ pub async fn webhook(
         .await
     {
         tracing::error!(%err, "PayPal webhook tenant context failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "webhook could not be processed");
+        return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "webhook could not be processed",
+            );
     }
     let order_id = event["resource"]["supplementary_data"]["related_ids"]["order_id"]
-        .as_str().unwrap_or("");
+        .as_str()
+        .unwrap_or("");
     let (tender_status, sale_status) = if event_type == "PAYMENT.CAPTURE.COMPLETED" {
         ("captured", "completed")
     } else {
@@ -651,7 +792,10 @@ pub async fn webhook(
     .await;
     if let Err(err) = update {
         tracing::error!(%err, "PayPal webhook tender update failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "webhook could not be processed");
+        return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "webhook could not be processed",
+            );
     }
     if let Err(err) = sqlx::query(
         "UPDATE sales SET status = $3, completed_at = CASE WHEN $3 = 'completed' THEN now() ELSE NULL END \
@@ -666,11 +810,17 @@ pub async fn webhook(
     .await
     {
         tracing::error!(%err, "PayPal webhook sale update failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "webhook could not be processed");
+        return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "webhook could not be processed",
+            );
     }
     if let Err(err) = tx.commit().await {
         tracing::error!(%err, "PayPal webhook commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "webhook could not be processed");
+        return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "webhook could not be processed",
+            );
     }
     StatusCode::NO_CONTENT.into_response()
 }
