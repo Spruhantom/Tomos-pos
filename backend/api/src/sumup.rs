@@ -32,7 +32,10 @@ pub struct NewAttempt<'a> {
 
 /// Creates a durable pending attempt before the checkout is sent to SumUp.
 /// The returned URL contains a 256-bit random bearer token; only its digest is stored.
-pub async fn create_attempt(db: &PgPool, input: NewAttempt<'_>) -> Result<CreatedAttempt, sqlx::Error> {
+pub async fn create_attempt(
+    db: &PgPool,
+    input: NewAttempt<'_>,
+) -> Result<CreatedAttempt, sqlx::Error> {
     let base_url = Url::parse(input.public_base_url)
         .map_err(|error| sqlx::Error::Protocol(format!("invalid public base URL: {error}")))?;
     if base_url.scheme() != "https" || base_url.host_str().is_none() {
@@ -47,7 +50,9 @@ pub async fn create_attempt(db: &PgPool, input: NewAttempt<'_>) -> Result<Create
         || !input.currency.bytes().all(|byte| byte.is_ascii_uppercase())
         || input.amount_minor == 0
     {
-        return Err(sqlx::Error::Protocol("invalid SumUp payment attempt details".into()));
+        return Err(sqlx::Error::Protocol(
+            "invalid SumUp payment attempt details".into(),
+        ));
     }
 
     let amount_minor = i64::try_from(input.amount_minor)
@@ -64,11 +69,17 @@ pub async fn create_attempt(db: &PgPool, input: NewAttempt<'_>) -> Result<Create
     return_url.set_fragment(None);
 
     let id = uuid::Uuid::new_v4();
+    let mut tx = db.begin().await?;
+    sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
+        .bind(input.tenant_id.to_string())
+        .execute(&mut *tx)
+        .await?;
+
     sqlx::query(
         "INSERT INTO sumup_payment_attempts \
          (id, tenant_id, sale_id, reader_id, client_transaction_id, merchant_code, \
-          amount_minor, currency, callback_token_hash) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+          amount_minor, currency) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
     )
     .bind(id)
     .bind(input.tenant_id)
@@ -78,15 +89,32 @@ pub async fn create_attempt(db: &PgPool, input: NewAttempt<'_>) -> Result<Create
     .bind(input.merchant_code)
     .bind(amount_minor)
     .bind(input.currency)
-    .bind(callback_token_hash)
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
+
+    sqlx::query(
+        "INSERT INTO sumup_webhook_tokens (token_hash, tenant_id, attempt_id) \
+         VALUES ($1, $2, $3)",
+    )
+    .bind(callback_token_hash)
+    .bind(input.tenant_id)
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
 
     Ok(CreatedAttempt {
         id,
         callback_token,
         return_url: return_url.to_string(),
     })
+}
+
+#[derive(FromRow)]
+struct WebhookTokenRow {
+    tenant_id: uuid::Uuid,
+    attempt_id: uuid::Uuid,
 }
 
 #[derive(FromRow)]
@@ -111,8 +139,6 @@ pub async fn webhook(
     }
 
     if event.event_type != SOLO_TRANSACTION_UPDATED {
-        // Ignore unknown event types so newly introduced provider events do not
-        // cause a retry storm. They never change payment state.
         return StatusCode::NO_CONTENT;
     }
 
@@ -130,12 +156,43 @@ pub async fn webhook(
     };
 
     let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
-    let attempt = match sqlx::query_as::<_, AttemptRow>(
-        "SELECT id, client_transaction_id, merchant_code, status \
-         FROM sumup_payment_attempts WHERE callback_token_hash = $1",
+    let token_record = match sqlx::query_as::<_, WebhookTokenRow>(
+        "SELECT tenant_id, attempt_id FROM sumup_webhook_tokens WHERE token_hash = $1",
     )
     .bind(token_hash)
     .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(record)) => record,
+        Ok(None) => return StatusCode::NOT_FOUND,
+        Err(error) => {
+            tracing::error!(%error, "SumUp webhook token lookup failed");
+            return StatusCode::SERVICE_UNAVAILABLE;
+        }
+    };
+
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(error) => {
+            tracing::error!(%error, "SumUp webhook transaction could not start");
+            return StatusCode::SERVICE_UNAVAILABLE;
+        }
+    };
+    if let Err(error) = sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
+        .bind(token_record.tenant_id.to_string())
+        .execute(&mut *tx)
+        .await
+    {
+        tracing::error!(%error, "SumUp webhook tenant context could not be set");
+        return StatusCode::SERVICE_UNAVAILABLE;
+    }
+
+    let attempt = match sqlx::query_as::<_, AttemptRow>(
+        "SELECT id, client_transaction_id, merchant_code, status \
+         FROM sumup_payment_attempts WHERE id = $1",
+    )
+    .bind(token_record.attempt_id)
+    .fetch_optional(&mut *tx)
     .await
     {
         Ok(Some(attempt)) => attempt,
@@ -199,19 +256,20 @@ pub async fn webhook(
     .bind(&event.id)
     .bind(failure_reason)
     .bind(attempt.id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     {
-        Ok(result) if result.rows_affected() == 1 => StatusCode::NO_CONTENT,
-        Ok(_) => {
-            // A concurrent duplicate delivery may have won the update. The
-            // conditional transition guarantees the attempt cannot be settled twice.
+        Ok(result) if result.rows_affected() == 1 => {
+            if let Err(error) = tx.commit().await {
+                tracing::error!(%error, attempt_id = %attempt.id, "SumUp webhook commit failed");
+                return StatusCode::SERVICE_UNAVAILABLE;
+            }
             StatusCode::NO_CONTENT
         }
+        Ok(_) => StatusCode::NO_CONTENT,
         Err(error) => {
             tracing::error!(%error, attempt_id = %attempt.id, "SumUp webhook persistence failed");
             StatusCode::SERVICE_UNAVAILABLE
         }
     }
 }
-
