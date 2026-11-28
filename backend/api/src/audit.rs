@@ -124,7 +124,10 @@ mod tests {
         );
         assert_eq!(AuditEntityType::Role.as_str(), "role");
         assert_eq!(AuditEventType::SaleCreated.as_str(), "sale.created");
-        assert_eq!(AuditEventType::ProductCreated.as_str(), "catalogue.product_created");
+        assert_eq!(
+            AuditEventType::ProductCreated.as_str(),
+            "catalogue.product_created"
+        );
         assert_eq!(AuditEntityType::Sale.as_str(), "sale");
         assert_eq!(AuditEntityType::Product.as_str(), "product");
     }

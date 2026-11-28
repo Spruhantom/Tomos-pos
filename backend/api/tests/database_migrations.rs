@@ -415,7 +415,6 @@ async fn audit_events_reject_update_delete_and_truncate() {
     pool.close().await;
 }
 
-
 #[tokio::test]
 async fn staff_invitation_rls_scopes_tenant_and_token_lookups() {
     let database_url = std::env::var("DATABASE_URL")
