@@ -1140,15 +1140,18 @@ pub async fn list_staff_invitations(
         Err(db_error) => {
             tracing::error!(%db_error, "staff invitation list query failed");
             return error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "invitations could not be listed",
-        );
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitations could not be listed",
+            );
         }
     };
 
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "staff invitation list transaction commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "invitations could not be listed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitations could not be listed",
+        );
     }
 
     let now = chrono::Utc::now();
@@ -1221,7 +1224,10 @@ pub async fn revoke_staff_invitation(
         Ok(None) => return error(StatusCode::NOT_FOUND, "invitation was not found"),
         Err(db_error) => {
             tracing::error!(%db_error, "staff invitation revocation lookup failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "invitation could not be revoked");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be revoked",
+            );
         }
     };
 
@@ -1245,7 +1251,10 @@ pub async fn revoke_staff_invitation(
     .await
     {
         tracing::error!(%db_error, "staff invitation revocation update failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "invitation could not be revoked");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitation could not be revoked",
+        );
     }
 
     if let Err(db_error) = crate::audit::record_event(
