@@ -815,6 +815,28 @@ pub async fn reader_webhook(
         tracing::error!(%err, "SumUp sale update failed");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
+    let reward_update = if sale_status == "completed" {
+        sqlx::query(
+            "UPDATE loyalty_redemptions SET status='redeemed',reserved_sale_id=NULL,redeemed_sale_id=$3,redeemed_at=now() WHERE tenant_id=$1 AND reserved_sale_id=$2 AND status='reserved'",
+        )
+        .bind(tenant_id)
+        .bind(sale_id)
+        .bind(sale_id)
+        .execute(&mut *tx)
+        .await
+    } else {
+        sqlx::query(
+            "UPDATE loyalty_redemptions SET status='issued',reserved_sale_id=NULL WHERE tenant_id=$1 AND reserved_sale_id=$2 AND status='reserved'",
+        )
+        .bind(tenant_id)
+        .bind(sale_id)
+        .execute(&mut *tx)
+        .await
+    };
+    if let Err(err) = reward_update {
+        tracing::error!(%err, "SumUp loyalty reward reconciliation failed");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
     if let Err(err) = sqlx::query(
         "UPDATE sumup_reader_payments SET status=$2, failure_reason=$3, completed_at=now() WHERE tenant_id=$1 AND client_transaction_id=$4",
     )
