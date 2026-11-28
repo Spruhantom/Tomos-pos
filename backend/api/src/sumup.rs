@@ -568,6 +568,24 @@ pub async fn start_reader_checkout(
             return error(StatusCode::INTERNAL_SERVER_ERROR, "SumUp payment could not be started");
         }
     };
+    let existing_pending: bool = match sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM sumup_reader_payments WHERE tenant_id=$1 AND sale_id=$2 AND status='pending')",
+    )
+    .bind(context.tenant_id)
+    .bind(sale_id)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::error!(%err, "SumUp pending payment lookup failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "SumUp payment could not be started");
+        }
+    };
+    if existing_pending {
+        return error(StatusCode::CONFLICT, "a SumUp reader payment is already pending for this sale");
+    }
+
     let (affiliate_app_id, affiliate_key) = match (
         config_value("SUMUP_AFFILIATE_APP_ID"),
         config_value("SUMUP_AFFILIATE_KEY"),
@@ -584,7 +602,7 @@ pub async fn start_reader_checkout(
     let return_url = format!("{webhook_base}?token={webhook_token}");
     let body = json!({
         "total_amount": { "currency": sale.currency_code, "minor_unit": 2, "value": sale.total_minor },
-        "affiliate": { "app_id": affiliate_app_id, "key": affiliate_key, "foreign_transaction_id": sale_id.to_string() },
+        "affiliate": { "app_id": affiliate_app_id, "key": affiliate_key, "foreign_transaction_id": uuid::Uuid::new_v4().to_string() },
         "return_url": return_url,
     });
     let created = match reqwest::Client::new()
