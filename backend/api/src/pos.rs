@@ -190,7 +190,6 @@ struct TillSessionRow {
     id: uuid::Uuid,
     opening_float_minor: i64,
     currency_code: String,
-    opened_at: chrono::DateTime<chrono::Utc>,
 }
 
 pub async fn current_till(
@@ -206,7 +205,7 @@ pub async fn current_till(
         }
     };
     let till = match sqlx::query_as::<_, TillSessionRow>(
-        "SELECT id, opening_float_minor, currency_code::text AS currency_code, opened_at \
+        "SELECT id, opening_float_minor, currency_code::text AS currency_code \
          FROM till_sessions WHERE tenant_id = $1 AND location_id = $2 AND status = 'open'",
     )
     .bind(context.tenant_id)
