@@ -1,4 +1,8 @@
-use axum::{extract::{Extension, Path, State}, http::StatusCode, Json};
+use axum::{
+    extract::{Extension, Path, State},
+    http::StatusCode,
+    Json,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -28,7 +32,9 @@ fn calculate_change(amount_minor: i64, tendered_minor: i64) -> Result<i64, Statu
     if amount_minor <= 0 || tendered_minor < amount_minor {
         return Err(StatusCode::BAD_REQUEST);
     }
-    tendered_minor.checked_sub(amount_minor).ok_or(StatusCode::BAD_REQUEST)
+    tendered_minor
+        .checked_sub(amount_minor)
+        .ok_or(StatusCode::BAD_REQUEST)
 }
 
 struct CashSale {
