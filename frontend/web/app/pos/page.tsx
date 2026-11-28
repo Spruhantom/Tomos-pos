@@ -10,6 +10,7 @@ type Location = { id: string; name: string; is_active: boolean };
 type Product = { id: string; sku: string; barcode: string | null; name: string; unit_price_minor: number; currency_code: string; tax_rate_bps: number };
 type Till = { id: string; opening_float_minor: number; currency_code: string; opened_at: string };
 type CheckoutResult = { sale_id: string; sale_number: number; status: string; tender_id: string; total_minor: number; tax_minor: number; change_due_minor: number; payment_method: string; payment_status: string; message: string };
+type LoyaltyCustomer = { id: string; display_name: string; balance_points: number };
 
 function money(value: number, currency = "GBP") {
   return new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(value / 100);
@@ -40,7 +41,12 @@ export default function PosPage() {
   const [cashReceived, setCashReceived] = useState("");
   const [terminalReference, setTerminalReference] = useState("");
   const [cart, setCart] = useState<Record<string, number>>({});
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "card_terminal" | "paypal">("cash");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "card_terminal" | "paypal" | "sumup_terminal">("cash");
+  const [customers, setCustomers] = useState<LoyaltyCustomer[]>([]);
+  const [customerId, setCustomerId] = useState("");
+  const [sumupReaderId, setSumupReaderId] = useState("");
+  const [sumupTransaction, setSumupTransaction] = useState("");
+  const [sumupPaymentStatus, setSumupPaymentStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -141,6 +147,16 @@ export default function PosPage() {
     return () => { active = false; };
   }, [tenantId, businessId, locationId]);
 
+  useEffect(() => {
+    let active = true;
+    setCustomers([]); setCustomerId("");
+    if (!tenantId || !businessId) return;
+    api<LoyaltyCustomer[]>(`loyalty/customers?business_id=${businessId}`, { tenantId })
+      .then((rows) => { if (active) setCustomers(rows); })
+      .catch(() => { if (active) setCustomers([]); });
+    return () => { active = false; };
+  }, [tenantId, businessId]);
+
   const selectedBusiness = businesses.find((business) => business.id === businessId);
   const cartLines = useMemo(() => products.filter((product) => cart[product.id]).map((product) => ({ product, quantity: cart[product.id] })), [products, cart]);
   const totalMinor = cartLines.reduce((sum, line) => sum + line.product.unit_price_minor * line.quantity, 0);
@@ -223,6 +239,7 @@ export default function PosPage() {
   async function takePayment() {
     if (!till || !cartLines.length) return;
     const receivedMinor = poundsToMinor(cashReceived);
+    if (paymentMethod === "sumup_terminal" && !sumupReaderId.trim()) { setError("Enter the paired SumUp Solo reader ID."); return; }
     if (paymentMethod === "cash" && receivedMinor < totalMinor) {
       setError("Cash received must cover the sale total."); return;
     }
@@ -239,6 +256,7 @@ export default function PosPage() {
           idempotency_key: idempotencyKey,
           items: cartLines.map((line) => ({ product_id: line.product.id, quantity: line.quantity })),
           payment_method: paymentMethod,
+          ...(customerId ? { customer_id: customerId } : {}),
           ...(paymentMethod === "cash" ? { cash_received_minor: receivedMinor } : paymentMethod === "card_terminal" ? { terminal_reference: terminalReference || null } : {}),
         },
       });
@@ -247,6 +265,19 @@ export default function PosPage() {
           method: "POST", tenantId, body: { business_id: businessId },
         });
         window.location.assign(order.approval_url);
+        return;
+      }
+      if (paymentMethod === "sumup_terminal") {
+        const reader = await api<{ client_transaction_id: string }>(`pos/sales/${result.sale_id}/sumup/reader-checkout`, {
+          method: "POST", tenantId, body: { business_id: businessId, reader_id: sumupReaderId.trim() },
+        });
+        setSumupTransaction(reader.client_transaction_id);
+        setSumupPaymentStatus("pending");
+        setLastSale(result);
+        setNotice("SumUp reader checkout started. Keep the sale pending until the reader reports success.");
+        setCart({});
+        setCheckoutKey(crypto.randomUUID());
+        setCashReceived("");
         return;
       }
       setLastSale(result);
@@ -293,12 +324,14 @@ export default function PosPage() {
             </div>
             <div className="pos-totals"><div><span>VAT included</span><b>{money(taxMinor, selectedBusiness?.currency_code)}</b></div><div className="pos-grand-total"><span>Total</span><b>{money(totalMinor, selectedBusiness?.currency_code)}</b></div></div>
             <div className="pos-payment">
+              <label>Customer (optional)<select value={customerId} onChange={(event) => setCustomerId(event.target.value)}><option value="">No loyalty customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.display_name} · {customer.balance_points} pts</option>)}</select></label>
               <p className="pos-eyebrow">PAYMENT METHOD</p>
-              <div className="pos-payment-options"><button className={paymentMethod === "cash" ? "selected" : ""} onClick={() => setPaymentMethod("cash")}>Cash</button><button className={paymentMethod === "card_terminal" ? "selected" : ""} onClick={() => setPaymentMethod("card_terminal")}>Card terminal</button><button className={paymentMethod === "paypal" ? "selected" : ""} onClick={() => setPaymentMethod("paypal")}>PayPal</button></div>
+              <div className="pos-payment-options"><button className={paymentMethod === "cash" ? "selected" : ""} onClick={() => setPaymentMethod("cash")}>Cash</button><button className={paymentMethod === "card_terminal" ? "selected" : ""} onClick={() => setPaymentMethod("card_terminal")}>Card terminal</button><button className={paymentMethod === "paypal" ? "selected" : ""} onClick={() => setPaymentMethod("paypal")}>PayPal</button><button className={paymentMethod === "sumup_terminal" ? "selected" : ""} onClick={() => setPaymentMethod("sumup_terminal")}>SumUp</button></div>
               {paymentMethod === "cash" ? <label>Cash received (£)<input inputMode="decimal" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} placeholder="0.00" /></label> : paymentMethod === "card_terminal" ?
-                <label>External terminal reference (optional)<input value={terminalReference} onChange={(event) => setTerminalReference(event.target.value)} placeholder="External terminal or lane reference" /><small>No terminal provider is connected yet. This request will remain pending until a provider confirms approval.</small></label> :
-                <p className="pos-payment-note">The customer will be redirected to PayPal to approve payment. The sale remains pending until PayPal confirms capture.</p> }
-              <button className="pos-pay-button" onClick={() => void takePayment()} disabled={busy || !cartLines.length}>{busy ? "Processing…" : paymentMethod === "cash" ? "Complete cash sale" : paymentMethod === "paypal" ? "Continue to PayPal" : "Create pending card payment"}</button>
+                <label>External terminal reference (optional)<input value={terminalReference} onChange={(event) => setTerminalReference(event.target.value)} placeholder="External terminal or lane reference" /><small>No terminal provider is connected yet. This request will remain pending until a provider confirms approval.</small></label> : paymentMethod === "paypal" ?
+                <p className="pos-payment-note">The customer will be redirected to PayPal to approve payment. The sale remains pending until PayPal confirms capture.</p> :
+                <label>Paired SumUp Solo reader ID<input value={sumupReaderId} onChange={(event) => setSumupReaderId(event.target.value)} placeholder="Reader ID from SumUp integration settings" /><small>The Solo reader starts the card transaction. The sale remains pending until the SumUp reader event confirms payment.</small></label> }
+              <button className="pos-pay-button" onClick={() => void takePayment()} disabled={busy || !cartLines.length}>{busy ? "Processing…" : paymentMethod === "cash" ? "Complete cash sale" : paymentMethod === "paypal" ? "Continue to PayPal" : paymentMethod === "sumup_terminal" ? "Start SumUp reader payment" : "Create pending card payment"}</button>
               <button className="pos-clear" disabled={busy || !cartLines.length} onClick={() => setCart({})}>Clear basket</button>
             </div>
             <div className="pos-till-tools">
@@ -314,6 +347,7 @@ export default function PosPage() {
             </div>
           </aside>
         </div>}
+      {sumupTransaction && <section className="pos-result"><b>SumUp reader payment</b><span>Status: {sumupPaymentStatus}</span><code>{sumupTransaction}</code><button className="pos-secondary-button" disabled={busy} onClick={async () => { setBusy(true); try { const result = await api<{ status: string }>(`sumup/payments/${sumupTransaction}`, { tenantId }); setSumupPaymentStatus(result.status); setNotice(result.status === "successful" ? "SumUp payment confirmed. Sale completed." : result.status === "failed" ? "SumUp payment failed. No payment was recorded." : "SumUp payment is still pending."); } catch (reason) { setError(messageOf(reason)); } finally { setBusy(false); } }}>Refresh SumUp payment status</button></section>}
       {lastSale && <section className="pos-result"><b>Sale #{lastSale.sale_number}</b><span>{lastSale.status.replaceAll("_", " ")}</span><strong>{money(lastSale.total_minor, selectedBusiness?.currency_code)}</strong>{lastSale.payment_method === "cash" && <p>Change due: {money(lastSale.change_due_minor, selectedBusiness?.currency_code)}</p>}{lastSale.payment_method === "card_terminal" && <p>Do not release the goods until the terminal provider confirms the payment.</p>}{lastSale.payment_method === "paypal" && <p>PayPal payment confirmed. The sale is complete.</p>}</section>}
     </main>
   );
