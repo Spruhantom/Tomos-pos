@@ -217,6 +217,28 @@ CREATE POLICY loyalty_ledger_tenant_isolation ON loyalty_ledger
     USING (tenant_id = NULLIF(current_setting('app.tenant_id', TRUE), '')::uuid)
     WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', TRUE), '')::uuid);
 
+CREATE TABLE loyalty_redemptions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    business_id UUID NOT NULL,
+    customer_id UUID NOT NULL,
+    reward_code TEXT NOT NULL UNIQUE,
+    points_redeemed BIGINT NOT NULL CHECK (points_redeemed > 0),
+    reward_value_minor BIGINT NOT NULL CHECK (reward_value_minor > 0),
+    status TEXT NOT NULL DEFAULT 'issued' CHECK (status IN ('issued', 'redeemed', 'expired')),
+    redeemed_sale_id UUID,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    redeemed_at TIMESTAMPTZ,
+    FOREIGN KEY (tenant_id, business_id, customer_id)
+        REFERENCES pos_customers(tenant_id, business_id, id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, redeemed_sale_id) REFERENCES sales(tenant_id, id) ON DELETE RESTRICT
+);
+ALTER TABLE loyalty_redemptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE loyalty_redemptions FORCE ROW LEVEL SECURITY;
+CREATE POLICY loyalty_redemptions_tenant_isolation ON loyalty_redemptions
+    USING (tenant_id = NULLIF(current_setting('app.tenant_id', TRUE), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', TRUE), '')::uuid);
+
 CREATE OR REPLACE FUNCTION award_loyalty_points_for_sale() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
