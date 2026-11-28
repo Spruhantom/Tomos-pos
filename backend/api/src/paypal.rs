@@ -298,9 +298,9 @@ pub async fn onboarding_return(
         Err(err) => {
             tracing::error!(%err, "PayPal onboarding session lookup failed");
             return error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "PayPal connection could not be completed",
-        );
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PayPal connection could not be completed",
+            );
         }
     };
     let (tenant_id, business_id) = session;
@@ -309,9 +309,9 @@ pub async fn onboarding_return(
         Err(err) => {
             tracing::error!(%err, "PayPal callback transaction failed");
             return error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "PayPal connection could not be completed",
-        );
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "PayPal connection could not be completed",
+            );
         }
     };
     if let Err(err) = sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
