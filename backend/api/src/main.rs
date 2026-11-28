@@ -100,7 +100,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route(
             "/api/v1/staff/invitations",
-            get(auth::list_staff_invitations).post(auth::create_staff_invitation)
+            get(auth::list_staff_invitations)
+                .post(auth::create_staff_invitation)
                 .route_layer(from_fn_with_state(
                     auth::PermissionState {
                         auth: auth_state.clone(),
