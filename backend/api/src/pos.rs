@@ -432,7 +432,7 @@ pub async fn close_till(
         "SELECT COUNT(*) FROM payment_tenders pt JOIN sales s \
          ON s.tenant_id = pt.tenant_id AND s.id = pt.sale_id \
          WHERE pt.tenant_id = $1 AND s.till_session_id = $2 \
-         AND pt.method IN ('card_terminal', 'paypal') AND pt.status = 'pending'",
+         AND pt.method IN ('card_terminal', 'paypal', 'sumup_terminal') AND pt.status = 'pending'",
     )
     .bind(context.tenant_id)
     .bind(till_id)
@@ -523,6 +523,7 @@ pub struct CheckoutRequest {
     payment_method: String,
     cash_received_minor: Option<i64>,
     terminal_reference: Option<String>,
+    customer_id: Option<uuid::Uuid>,
 }
 
 #[derive(FromRow)]
@@ -590,7 +591,7 @@ pub async fn checkout(
     }
     if request.items.is_empty() || request.items.len() > 100
         || request.items.iter().any(|item| !(1..=10_000).contains(&item.quantity))
-        || !matches!(request.payment_method.as_str(), "cash" | "card_terminal" | "paypal")
+        || !matches!(request.payment_method.as_str(), "cash" | "card_terminal" | "paypal" | "sumup_terminal")
         || request.terminal_reference.as_ref().is_some_and(|value| value.trim().len() > 120)
     {
         return error(StatusCode::BAD_REQUEST, "checkout details are invalid");
@@ -731,6 +732,47 @@ pub async fn checkout(
         }
     }
 
+    if let Some(customer_id) = request.customer_id {
+        let customer_exists: bool = match sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pos_customers WHERE tenant_id=$1 AND business_id=$2 AND id=$3)",
+        )
+        .bind(context.tenant_id)
+        .bind(request.business_id)
+        .bind(customer_id)
+        .fetch_one(&mut *tx)
+        .await
+        {
+            Ok(value) => value,
+            Err(err) => {
+                tracing::error!(%err, "loyalty customer lookup failed");
+                return error(StatusCode::INTERNAL_SERVER_ERROR, "customer could not be checked");
+            }
+        };
+        if !customer_exists {
+            return error(StatusCode::NOT_FOUND, "customer was not found for this business");
+        }
+    }
+
+    if request.payment_method == "sumup_terminal" {
+        let connected: bool = match sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sumup_business_accounts WHERE tenant_id=$1 AND business_id=$2 AND connection_status='connected' AND merchant_code IS NOT NULL)",
+        )
+        .bind(context.tenant_id)
+        .bind(request.business_id)
+        .fetch_one(&mut *tx)
+        .await
+        {
+            Ok(value) => value,
+            Err(err) => {
+                tracing::error!(%err, "SumUp connection lookup failed");
+                return error(StatusCode::INTERNAL_SERVER_ERROR, "SumUp connection could not be checked");
+            }
+        };
+        if !connected {
+            return error(StatusCode::CONFLICT, "connect this business to SumUp before taking SumUp payments");
+        }
+    }
+
     let counter: i64 = match sqlx::query_scalar(
         "INSERT INTO business_sale_counters (tenant_id, business_id, next_number) VALUES ($1,$2,2) \
          ON CONFLICT (tenant_id, business_id) DO UPDATE SET next_number = business_sale_counters.next_number + 1 \
@@ -804,8 +846,8 @@ pub async fn checkout(
 
     let sale_status = if is_cash { "completed" } else { "awaiting_payment" };
     let sale_id = match sqlx::query_scalar::<_, uuid::Uuid>(
-        "INSERT INTO sales (tenant_id,business_id,location_id,till_session_id,cashier_user_id,sale_number,idempotency_key,status,currency_code,subtotal_minor,tax_minor,total_minor,completed_at) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CASE WHEN $8 = 'completed' THEN now() ELSE NULL END) RETURNING id",
+        "INSERT INTO sales (tenant_id,business_id,location_id,till_session_id,cashier_user_id,sale_number,idempotency_key,status,currency_code,subtotal_minor,tax_minor,total_minor,completed_at,customer_id) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CASE WHEN $8 = 'completed' THEN now() ELSE NULL END,$13) RETURNING id",
     )
     .bind(context.tenant_id)
     .bind(request.business_id)
@@ -819,6 +861,7 @@ pub async fn checkout(
     .bind(subtotal)
     .bind(tax_total)
     .bind(total)
+    .bind(request.customer_id)
     .fetch_one(&mut *tx)
     .await
     {
@@ -857,7 +900,7 @@ pub async fn checkout(
     let change_due = if is_cash { received - total } else { 0 };
     let tender_id = match sqlx::query_scalar::<_, uuid::Uuid>(
         "INSERT INTO payment_tenders (tenant_id,sale_id,method,status,amount_minor,amount_received_minor,change_due_minor,provider_key,terminal_reference,created_by,captured_at) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,CASE WHEN $3 = 'card_terminal' THEN 'external_terminal' WHEN $3 = 'paypal' THEN 'paypal' ELSE NULL END,$8,$9,CASE WHEN $4 = 'captured' THEN now() ELSE NULL END) RETURNING id",
+         VALUES ($1,$2,$3,$4,$5,$6,$7,CASE WHEN $3 = 'card_terminal' THEN 'external_terminal' WHEN $3 = 'paypal' THEN 'paypal' WHEN $3 = 'sumup_terminal' THEN 'sumup' ELSE NULL END,$8,$9,CASE WHEN $4 = 'captured' THEN now() ELSE NULL END) RETURNING id",
     )
     .bind(context.tenant_id)
     .bind(sale_id)
