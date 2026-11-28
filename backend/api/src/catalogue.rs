@@ -102,11 +102,49 @@ pub async fn list_products(
     Ok(Json(products.into_iter().map(Into::into).collect()))
 }
 
+async fn ensure_catalogue_manage(
+    state: &AuthState,
+    context: &AuthContext,
+) -> Result<(), StatusCode> {
+    let mut tx = auth::begin_tenant_transaction(state, context)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "catalogue permission transaction failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    let permitted: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+           SELECT 1 FROM membership_roles mr
+           JOIN role_permissions rp ON rp.tenant_id = mr.tenant_id AND rp.role_id = mr.role_id
+           JOIN permissions p ON p.id = rp.permission_id
+           WHERE mr.tenant_id = $1 AND mr.membership_id = $2
+             AND p.permission_key = 'catalogue.manage'
+         )",
+    )
+    .bind(context.tenant_id)
+    .bind(context.membership_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, "catalogue permission lookup failed");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    tx.commit().await.map_err(|error| {
+        tracing::error!(%error, "catalogue permission transaction commit failed");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    if !permitted {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(())
+}
+
 pub async fn create_product(
     State(state): State<AuthState>,
     Extension(context): Extension<AuthContext>,
     Json(request): Json<CreateProductRequest>,
 ) -> Result<(StatusCode, Json<ProductResponse>), StatusCode> {
+    ensure_catalogue_manage(&state, &context).await?;
     let name = request.name.trim();
     if name.is_empty()
         || name.chars().count() > 160
@@ -182,13 +220,4 @@ pub async fn create_product(
     })?;
 
     Ok((StatusCode::CREATED, Json(product.into())))
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn product_request_limits_are_explicit() {
-        assert!(160usize <= 160);
-        assert!(10_000u32 <= 10_000);
-    }
 }
