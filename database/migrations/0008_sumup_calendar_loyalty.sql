@@ -1,6 +1,22 @@
 -- SumUp merchant connections, Google Calendar bridge, appointments and TomOS loyalty.
 -- OAuth refresh tokens are encrypted by the API before being written to these tables.
 
+INSERT INTO permissions (permission_key, description) VALUES
+    ('integrations.manage', 'Connect and manage external business integrations'),
+    ('calendar.read', 'View business appointments'),
+    ('calendar.manage', 'Create and synchronise business appointments'),
+    ('loyalty.read', 'View customers and loyalty balances'),
+    ('loyalty.manage', 'Manage loyalty programmes and rewards')
+ON CONFLICT (permission_key) DO NOTHING;
+
+INSERT INTO role_permissions (tenant_id, role_id, permission_id)
+SELECT r.tenant_id, r.id, p.id
+FROM roles r
+JOIN permissions p ON p.permission_key IN
+    ('integrations.manage', 'calendar.read', 'calendar.manage', 'loyalty.read', 'loyalty.manage')
+WHERE r.tenant_id IS NOT NULL AND r.role_key = 'owner'
+ON CONFLICT DO NOTHING;
+
 ALTER TABLE payment_tenders DROP CONSTRAINT IF EXISTS payment_tenders_method_check;
 ALTER TABLE payment_tenders ADD CONSTRAINT payment_tenders_method_check
     CHECK (method IN ('cash', 'card_terminal', 'paypal', 'sumup_terminal'));
