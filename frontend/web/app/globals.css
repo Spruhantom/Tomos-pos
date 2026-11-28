@@ -34,3 +34,11 @@
 .pos-loading,.pos-login{min-height:100vh;display:grid;place-content:center;background:#09111f;color:#edf3ff;padding:24px}.pos-login p{color:#9eafc9}
 @media(max-width:950px){.pos-header{align-items:flex-start;flex-direction:column}.pos-workspace{grid-template-columns:1fr}.pos-cart{position:static}.pos-cart-lines{max-height:none}}
 @media(max-width:580px){.pos-shell{padding:14px}.pos-selectors{display:grid;grid-template-columns:1fr 1fr;width:100%}.pos-selectors label:last-child{grid-column:1/-1}.pos-selectors select{width:100%;min-width:0}.pos-section-heading{align-items:flex-start;flex-direction:column}.pos-section-heading input{width:100%}.pos-cart-line{grid-template-columns:minmax(0,1fr) auto}.pos-cart-line strong{grid-column:2;grid-row:2}.pos-quantity{grid-column:2;grid-row:1}.pos-result strong{margin-left:0}}
+
+.pos-till-tools{border-top:1px solid #2a3d5c;margin-top:16px;padding-top:15px;display:flex;flex-direction:column;gap:9px}
+.pos-till-tools label{display:flex;flex-direction:column;gap:6px;color:#aebdd5;font-size:10px;font-weight:700}
+.pos-till-tools input,.pos-till-tools select{background:#0c192c;border:1px solid #2a3d5c;border-radius:8px;color:#edf3ff;padding:9px 10px;width:100%}
+.pos-secondary-button,.pos-close-button{padding:10px;border-radius:8px;font-size:11px;font-weight:800}
+.pos-secondary-button{background:#1a3554;color:#cbe5ff;border:1px solid #36577c}
+.pos-close-till{border-top:1px solid #2a3d5c;padding-top:12px;margin-top:4px;display:flex;flex-direction:column;gap:9px}
+.pos-close-button{background:#512a32;color:#ffdfe2;border:1px solid #80434e}
