@@ -83,7 +83,15 @@ mod tests {
 
     #[test]
     fn mobile_reader_paths_require_companion_app() {
-        assert!(IntegrationPath::MobileReaderSdk.capabilities().requires_companion_app);
-        assert!(IntegrationPath::PaymentSwitch.capabilities().requires_companion_app);
+        assert!(
+            IntegrationPath::MobileReaderSdk
+                .capabilities()
+                .requires_companion_app
+        );
+        assert!(
+            IntegrationPath::PaymentSwitch
+                .capabilities()
+                .requires_companion_app
+        );
     }
 }
