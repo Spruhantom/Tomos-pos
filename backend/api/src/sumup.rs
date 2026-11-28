@@ -651,6 +651,38 @@ pub async fn start_reader_checkout(
     })).into_response()
 }
 
+pub async fn payment_status(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    Path(client_transaction_id): Path<String>,
+) -> Response {
+    if client_transaction_id.len() > 100 {
+        return error(StatusCode::BAD_REQUEST, "SumUp transaction reference is invalid");
+    }
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(err) => {
+            tracing::error!(%err, "SumUp payment status transaction failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "SumUp payment status could not be loaded");
+        }
+    };
+    match sqlx::query_as::<_, (String, uuid::Uuid)>(
+        "SELECT status,sale_id FROM sumup_reader_payments WHERE tenant_id=$1 AND client_transaction_id=$2",
+    )
+    .bind(context.tenant_id)
+    .bind(client_transaction_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some((status, sale_id))) => Json(json!({ "status": status, "sale_id": sale_id })).into_response(),
+        Ok(None) => error(StatusCode::NOT_FOUND, "SumUp transaction was not found"),
+        Err(err) => {
+            tracing::error!(%err, "SumUp payment status lookup failed");
+            error(StatusCode::INTERNAL_SERVER_ERROR, "SumUp payment status could not be loaded")
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct ReaderWebhookQuery {
     token: String,
