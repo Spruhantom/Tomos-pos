@@ -432,7 +432,7 @@ pub async fn close_till(
         "SELECT COUNT(*) FROM payment_tenders pt JOIN sales s \
          ON s.tenant_id = pt.tenant_id AND s.id = pt.sale_id \
          WHERE pt.tenant_id = $1 AND s.till_session_id = $2 \
-         AND pt.method = 'card_terminal' AND pt.status = 'pending'",
+         AND pt.method IN ('card_terminal', 'paypal') AND pt.status = 'pending'",
     )
     .bind(context.tenant_id)
     .bind(till_id)
@@ -646,7 +646,7 @@ pub async fn checkout(
         let message = if existing.payment_status == "captured" {
             "This checkout was already completed; no duplicate payment was taken."
         } else {
-            "This checkout already exists and its card-terminal payment is still pending."
+            "This checkout already exists and its external payment is still pending."
         };
         return (
             StatusCode::OK,
