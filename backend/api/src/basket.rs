@@ -74,7 +74,9 @@ fn calculate_amounts(
     quantity: u32,
     tax_rate_bps: i32,
 ) -> Result<CalculatedAmounts, StatusCode> {
-    if unit_price_minor < 0 || quantity == 0 || quantity > MAX_QUANTITY
+    if unit_price_minor < 0
+        || quantity == 0
+        || quantity > MAX_QUANTITY
         || !(0..=10_000).contains(&tax_rate_bps)
     {
         return Err(StatusCode::BAD_REQUEST);
@@ -142,7 +144,10 @@ pub async fn create_basket_sale(
         if !product.is_active {
             return Err(StatusCode::CONFLICT);
         }
-        if currency.as_ref().is_some_and(|value| value != &product.currency) {
+        if currency
+            .as_ref()
+            .is_some_and(|value| value != &product.currency)
+        {
             return Err(StatusCode::BAD_REQUEST);
         }
         currency.get_or_insert_with(|| product.currency.clone());
@@ -152,9 +157,15 @@ pub async fn create_basket_sale(
             requested.quantity,
             product.tax_rate_bps,
         )?;
-        net_total = net_total.checked_add(amounts.net_minor).ok_or(StatusCode::BAD_REQUEST)?;
-        tax_total = tax_total.checked_add(amounts.tax_minor).ok_or(StatusCode::BAD_REQUEST)?;
-        gross_total = gross_total.checked_add(amounts.gross_minor).ok_or(StatusCode::BAD_REQUEST)?;
+        net_total = net_total
+            .checked_add(amounts.net_minor)
+            .ok_or(StatusCode::BAD_REQUEST)?;
+        tax_total = tax_total
+            .checked_add(amounts.tax_minor)
+            .ok_or(StatusCode::BAD_REQUEST)?;
+        gross_total = gross_total
+            .checked_add(amounts.gross_minor)
+            .ok_or(StatusCode::BAD_REQUEST)?;
 
         response_lines.push(BasketLineResponse {
             product_id: product.id.to_string(),
@@ -199,7 +210,10 @@ pub async fn create_basket_sale(
         )
         .bind(context.tenant_id)
         .bind(sale_id)
-        .bind(uuid::Uuid::parse_str(&line.product_id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?)
+        .bind(
+            uuid::Uuid::parse_str(&line.product_id)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        )
         .bind(&line.name)
         .bind(&line.sku)
         .bind(i32::try_from(line.quantity).map_err(|_| StatusCode::BAD_REQUEST)?)
