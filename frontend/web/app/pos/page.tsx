@@ -241,7 +241,7 @@ export default function PosPage() {
     if (!till || !cartLines.length) return;
     const receivedMinor = poundsToMinor(cashReceived);
     if (paymentMethod === "sumup_terminal" && !sumupReaderId.trim()) { setError("Enter the paired SumUp Solo reader ID."); return; }
-    if (paymentMethod === "cash" && receivedMinor < totalMinor) {
+    if (paymentMethod === "cash" && receivedMinor < totalMinor && !rewardCode.trim()) {
       setError("Cash received must cover the sale total."); return;
     }
     setBusy(true); setError(""); setNotice(""); setLastSale(null);
@@ -280,6 +280,7 @@ export default function PosPage() {
         setCart({});
         setCheckoutKey(crypto.randomUUID());
         setCashReceived("");
+        setRewardCode("");
         return;
       }
       setLastSale(result);
