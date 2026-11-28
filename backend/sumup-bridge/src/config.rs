@@ -52,11 +52,4 @@ impl SumUpConfig {
         })
     }
 
-    /// Override only for controlled tests. Production deployments should use
-    /// the official HTTPS API host.
-    #[cfg(test)]
-    pub(crate) fn with_api_base_url(mut self, url: Url) -> Self {
-        self.api_base_url = url;
-        self
-    }
 }
