@@ -82,5 +82,8 @@ mod tests {
         assert_eq!(AuditEntityType::Business.as_str(), "business");
         assert_eq!(AuditEventType::StaffInvited.as_str(), "staff.invited");
         assert_eq!(AuditEntityType::Invitation.as_str(), "staff_invitation");
+        assert_eq!(AuditEventType::StaffDeactivated.as_str(), "staff.deactivated");
+        assert_eq!(AuditEventType::StaffRoleChanged.as_str(), "staff.role_changed");
+        assert_eq!(AuditEntityType::Membership.as_str(), "membership");
     }
 }
