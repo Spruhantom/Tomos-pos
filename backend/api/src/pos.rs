@@ -179,6 +179,54 @@ pub async fn create_product(
     (StatusCode::CREATED, Json(serde_json::json!({ "id": product_id }))).into_response()
 }
 
+
+#[derive(Deserialize)]
+pub struct CurrentTillQuery {
+    location_id: uuid::Uuid,
+}
+
+#[derive(FromRow, Serialize)]
+struct TillSessionRow {
+    id: uuid::Uuid,
+    opening_float_minor: i64,
+    currency_code: String,
+    opened_at: chrono::DateTime<chrono::Utc>,
+}
+
+pub async fn current_till(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    Query(query): Query<CurrentTillQuery>,
+) -> Response {
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "current till transaction failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "till status could not be loaded");
+        }
+    };
+    let till = match sqlx::query_as::<_, TillSessionRow>(
+        "SELECT id, opening_float_minor, currency_code::text AS currency_code, opened_at \
+         FROM till_sessions WHERE tenant_id = $1 AND location_id = $2 AND status = 'open'",
+    )
+    .bind(context.tenant_id)
+    .bind(query.location_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(till) => till,
+        Err(db_error) => {
+            tracing::error!(%db_error, "current till lookup failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "till status could not be loaded");
+        }
+    };
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "current till commit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "till status could not be loaded");
+    }
+    Json(serde_json::json!({ "till": till })).into_response()
+}
+
 #[derive(Deserialize)]
 pub struct OpenTillRequest {
     business_id: uuid::Uuid,
