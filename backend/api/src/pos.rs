@@ -561,12 +561,22 @@ struct CheckoutResponse {
     message: &'static str,
 }
 
-fn tax_inclusive_amount(gross_minor: i64, rate_bps: i32) -> Result<(i64, i64), ()> {
+#[derive(Debug, PartialEq, Eq)]
+enum AmountError {
+    Overflow,
+}
+
+fn tax_inclusive_amount(
+    gross_minor: i64,
+    rate_bps: i32,
+) -> Result<(i64, i64), AmountError> {
     let denominator = 10_000_i128 + i128::from(rate_bps);
     let gross = i128::from(gross_minor);
     let tax = (gross * i128::from(rate_bps) + denominator / 2) / denominator;
     let net = gross - tax;
-    Ok((i64::try_from(net).map_err(|_| ())?, i64::try_from(tax).map_err(|_| ())?))
+    let net = i64::try_from(net).map_err(|_| AmountError::Overflow)?;
+    let tax = i64::try_from(tax).map_err(|_| AmountError::Overflow)?;
+    Ok((net, tax))
 }
 
 pub async fn checkout(
@@ -745,7 +755,9 @@ pub async fn checkout(
         };
         let (line_net, line_tax) = match tax_inclusive_amount(gross, product.tax_rate_bps) {
             Ok(values) => values,
-            Err(()) => return error(StatusCode::BAD_REQUEST, "basket total is too large"),
+            Err(AmountError::Overflow) => {
+                return error(StatusCode::BAD_REQUEST, "basket total is too large")
+            }
         };
         subtotal = match subtotal.checked_add(line_net) {
             Some(value) => value,
