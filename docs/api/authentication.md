@@ -49,7 +49,7 @@ Set `COOKIE_SECURE=true` whenever the application is served over HTTPS. The samp
 - CSRF/origin validation currently covers authentication state changes; all future cookie-authenticated mutation routes must apply the same origin validation or a stronger CSRF token strategy.
 - MFA, password reset, email verification and session/device management are outstanding.
 - Tenant-scoped authorisation middleware is implemented for the tenant context and staff invitation endpoints; every future business route still needs explicit permission middleware and tenant-scoped transactions.
-- Ongoing business registration and tenant provisioning are not implemented; staff invitations are available after first-run setup.
+- Additional business registration is available within an existing tenant. Creating a new tenant and inviting its first owner are not yet implemented; staff invitations are available after first-run setup.
 - The API currently has no web frontend.
 
 Do not expose this API to the public internet or use it for live business data until the outstanding security controls and integration tests are complete.
