@@ -866,6 +866,27 @@ pub async fn checkout(
         tracing::error!(%db_error, "sale audit failed");
         return error(StatusCode::INTERNAL_SERVER_ERROR, "sale could not be created");
     }
+    if let Err(db_error) = crate::audit::record_event(
+        &mut tx,
+        &context,
+        AuditEventType::PaymentTenderCreated,
+        AuditEntityType::Tender,
+        Some(tender_id),
+        serde_json::json!({
+            "sale_id": sale_id,
+            "method": request.payment_method,
+            "status": payment_status,
+            "amount_minor": total
+        }),
+    )
+    .await
+    {
+        tracing::error!(%db_error, "payment tender audit failed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "payment could not be recorded",
+        );
+    }
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "checkout transaction commit failed");
         return error(StatusCode::INTERNAL_SERVER_ERROR, "sale could not be created");
