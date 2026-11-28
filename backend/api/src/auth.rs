@@ -1231,19 +1231,32 @@ pub async fn revoke_staff_invitation(
         );
     }
 
-    if let Err(db_error) = sqlx::query(
+    let updated = match sqlx::query(
         "UPDATE staff_invitations SET revoked_at = now() \
-         WHERE id = $1 AND tenant_id = $2 AND accepted_at IS NULL AND revoked_at IS NULL",
+         WHERE id = $1 AND tenant_id = $2 AND accepted_at IS NULL \
+           AND revoked_at IS NULL AND expires_at > now()",
     )
     .bind(invitation_id)
     .bind(context.tenant_id)
     .execute(&mut *tx)
     .await
     {
-        tracing::error!(%db_error, "staff invitation revocation update failed");
+        Ok(result) => result,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff invitation revocation update failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be revoked",
+            );
+        }
+    };
+
+    // The expiry check is repeated in the UPDATE so an invitation that expires
+    // while this request holds its row lock cannot be revoked as if still pending.
+    if updated.rows_affected() != 1 {
         return error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "invitation could not be revoked",
+            StatusCode::CONFLICT,
+            "only a pending invitation can be revoked",
         );
     }
 
@@ -1407,6 +1420,18 @@ pub async fn accept_staff_invitation(
     .await
     {
         Ok(id) => id,
+        Err(db_error)
+            if db_error
+                .as_database_error()
+                .is_some_and(|database_error| database_error.code().as_deref() == Some("23505")) =>
+        {
+            // Another invitation may have created this global account after the
+            // earlier existence check. Treat the unique-email race as a conflict.
+            return error(
+                StatusCode::CONFLICT,
+                "an account already exists for this email; sign-in invitation linking is not available yet",
+            );
+        }
         Err(db_error) => {
             tracing::error!(%db_error, "invited user account creation failed");
             return error(
