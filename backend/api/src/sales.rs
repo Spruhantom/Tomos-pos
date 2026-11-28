@@ -212,12 +212,14 @@ pub async fn start_sumup_payment(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    let minor_unit =
+        sumup_currency_minor_unit(&sale.currency).ok_or(StatusCode::BAD_REQUEST)?;
     let checkout = CheckoutRequest {
         reader_id: configured_reader,
         client_transaction_id,
         amount: Money {
             currency: sale.currency,
-            minor_unit: sumup_currency_minor_unit(&sale.currency).ok_or(StatusCode::BAD_REQUEST)?,
+            minor_unit,
             value: sale.amount_minor as u64,
         },
         return_url: attempt.return_url,
