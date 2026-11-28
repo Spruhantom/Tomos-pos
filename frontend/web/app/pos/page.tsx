@@ -33,6 +33,10 @@ export default function PosPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [till, setTill] = useState<Till | null>(null);
   const [openingFloat, setOpeningFloat] = useState("100.00");
+  const [cashMovementType, setCashMovementType] = useState<"paid_in" | "paid_out">("paid_in");
+  const [cashMovementAmount, setCashMovementAmount] = useState("");
+  const [cashMovementReason, setCashMovementReason] = useState("");
+  const [closingCount, setClosingCount] = useState("");
   const [cashReceived, setCashReceived] = useState("");
   const [terminalReference, setTerminalReference] = useState("");
   const [cart, setCart] = useState<Record<string, number>>({});
@@ -145,6 +149,40 @@ export default function PosPage() {
     finally { setBusy(false); }
   }
 
+  async function recordCashMovement() {
+    if (!till) return;
+    const amountMinor = poundsToMinor(cashMovementAmount);
+    if (amountMinor <= 0 || !cashMovementReason.trim()) {
+      setError("Enter a positive amount and a reason for the cash movement."); return;
+    }
+    setBusy(true); setError(""); setNotice("");
+    try {
+      await api(`pos/tills/${till.id}/cash-movements`, {
+        method: "POST", tenantId,
+        body: { movement_type: cashMovementType, amount_minor: amountMinor, reason: cashMovementReason.trim() },
+      });
+      setNotice(cashMovementType === "paid_in" ? "Cash paid into the drawer was recorded." : "Cash paid out of the drawer was recorded.");
+      setCashMovementAmount(""); setCashMovementReason("");
+    } catch (reason) { setError(messageOf(reason)); }
+    finally { setBusy(false); }
+  }
+
+  async function closeTill() {
+    if (!till) return;
+    const countedMinor = poundsToMinor(closingCount);
+    if (countedMinor < 0) { setError("Enter the counted cash total."); return; }
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const result = await api<{ expected_cash_minor: number; counted_cash_minor: number; variance_minor: number }>(
+        `pos/tills/${till.id}/close`,
+        { method: "POST", tenantId, body: { closing_count_minor: countedMinor } },
+      );
+      setNotice(`Till closed. Expected ${money(result.expected_cash_minor, selectedBusiness?.currency_code)}; variance ${money(result.variance_minor, selectedBusiness?.currency_code)}.`);
+      setTill(null); setCart({}); setClosingCount("");
+    } catch (reason) { setError(messageOf(reason)); }
+    finally { setBusy(false); }
+  }
+
   async function takePayment() {
     if (!till || !cartLines.length) return;
     const receivedMinor = poundsToMinor(cashReceived);
@@ -216,6 +254,17 @@ export default function PosPage() {
                 <label>Terminal reference (optional)<input value={terminalReference} onChange={(event) => setTerminalReference(event.target.value)} placeholder="Terminal or lane reference" /><small>Card payments remain pending until a connected terminal provider confirms approval.</small></label>}
               <button className="pos-pay-button" onClick={() => void takePayment()} disabled={busy || !cartLines.length}>{busy ? "Processing…" : paymentMethod === "cash" ? "Complete cash sale" : "Start card terminal payment"}</button>
               <button className="pos-clear" disabled={busy || !cartLines.length} onClick={() => setCart({})}>Clear basket</button>
+            </div>
+            <div className="pos-till-tools">
+              <p className="pos-eyebrow">TILL OPERATIONS</p>
+              <label>Cash movement<select value={cashMovementType} onChange={(event) => setCashMovementType(event.target.value as "paid_in" | "paid_out")}><option value="paid_in">Paid in</option><option value="paid_out">Paid out</option></select></label>
+              <label>Amount (£)<input inputMode="decimal" value={cashMovementAmount} onChange={(event) => setCashMovementAmount(event.target.value)} placeholder="0.00" /></label>
+              <label>Reason<input value={cashMovementReason} onChange={(event) => setCashMovementReason(event.target.value)} placeholder="Reason for movement" /></label>
+              <button className="pos-secondary-button" disabled={busy} onClick={() => void recordCashMovement()}>Record cash movement</button>
+              <div className="pos-close-till">
+                <label>Counted drawer cash (£)<input inputMode="decimal" value={closingCount} onChange={(event) => setClosingCount(event.target.value)} placeholder="0.00" /></label>
+                <button className="pos-close-button" disabled={busy} onClick={() => void closeTill()}>Close and reconcile till</button>
+              </div>
             </div>
           </aside>
         </div>}
