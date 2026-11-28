@@ -53,7 +53,8 @@ Do not advertise every SumUp model as Cloud API compatible. Query the official d
 - [x] Integer minor-unit amount model and HTTPS callback validation.
 - [x] Provider capability types for Cloud API, mobile SDK and Payment Switch paths.
 - [ ] Tenant-scoped credential and reader persistence.
-- [x] Solo webhook event parsing, merchant/reference matching and terminal-state/idempotency rules in the Rust bridge.\n- [ ] Public HTTPS callback endpoint, per-attempt callback token storage and durable idempotent event storage.
+- [x] Solo webhook event parsing, merchant/reference matching and terminal-state/idempotency rules in the Rust bridge.
+- [ ] Public HTTPS callback endpoint, per-attempt callback token storage and durable idempotent event storage.
 - [ ] POS checkout and sale-state integration.
 - [ ] Refund workflow and transaction reconciliation.
 - [ ] Android companion adapter for supported Solo Lite/Air SDK workflows.
