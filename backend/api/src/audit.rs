@@ -18,6 +18,7 @@ pub enum AuditEventType {
     RoleCreated,
     RolePermissionsChanged,
     SaleCreated,
+    SalePaid,
     ProductCreated,
 }
 
@@ -36,6 +37,7 @@ impl AuditEventType {
             Self::RoleCreated => "role.created",
             Self::RolePermissionsChanged => "role.permissions_changed",
             Self::SaleCreated => "sale.created",
+            Self::SalePaid => "sale.paid",
             Self::ProductCreated => "catalogue.product_created",
         }
     }
@@ -124,6 +126,7 @@ mod tests {
         );
         assert_eq!(AuditEntityType::Role.as_str(), "role");
         assert_eq!(AuditEventType::SaleCreated.as_str(), "sale.created");
+        assert_eq!(AuditEventType::SalePaid.as_str(), "sale.paid");
         assert_eq!(
             AuditEventType::ProductCreated.as_str(),
             "catalogue.product_created"

@@ -11,7 +11,10 @@ type Member = { membership_id: string; email: string; display_name: string; stat
 type Invitation = { id: string; email: string; expires_at: string; status: string };
 type Role = { id: string; key: string; display_name: string; is_system: boolean; permissions: string[] };
 type Permission = { key: string; description: string };
-type Section = "overview" | "business" | "staff" | "roles";
+type Section = "overview" | "pos" | "business" | "staff" | "roles";
+type Product = { id: string; sku: string | null; name: string; unit_price_minor: number; currency: string; tax_rate_bps: number; is_active: boolean };
+type BasketLine = { product: Product; quantity: number };
+type CashReceipt = { sale_id: string; payment_id: string; amount_minor: number; tendered_minor: number; change_minor: number; currency: string; status: string };
 
 function errorText(reason: unknown) {
   if (reason instanceof ApiError && reason.status === 401) return "Your session has expired. Sign in again.";
@@ -34,6 +37,14 @@ export default function Home() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [section, setSection] = useState<Section>("overview");
+  const [products, setProducts] = useState<Product[]>([]);
+  const [basket, setBasket] = useState<BasketLine[]>([]);
+  const [productSearch, setProductSearch] = useState("");
+  const [tendered, setTendered] = useState("");
+  const [checkoutSaleId, setCheckoutSaleId] = useState("");
+  const [pendingSaleLines, setPendingSaleLines] = useState<BasketLine[]>([]);
+  const [receipt, setReceipt] = useState<CashReceipt | null>(null);
+  const [receiptLines, setReceiptLines] = useState<BasketLine[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -123,6 +134,88 @@ export default function Home() {
   }, [tenantId]);
 
   useEffect(() => { if (section === "staff" || section === "roles") void loadStaff(); }, [section, loadStaff]);
+
+  const loadProducts = useCallback(async () => {
+    if (!tenantId) return;
+    try {
+      const result = await api<Product[]>("products", { tenantId });
+      setProducts(result);
+    } catch (reason) { setError(errorText(reason)); }
+  }, [tenantId]);
+
+  useEffect(() => { if (section === "pos") void loadProducts(); }, [section, loadProducts]);
+
+  const basketTotal = basket.reduce((sum, line) => sum + line.product.unit_price_minor * line.quantity, 0);
+  const basketCurrency = basket[0]?.product.currency ?? selectedBusiness?.currency_code ?? "GBP";
+  const formatMoney = (minor: number, currency = basketCurrency) => new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(minor / 100);
+
+  function addToBasket(product: Product) {
+    if (checkoutSaleId) return;
+    if (basket.length && basket[0].product.currency !== product.currency) {
+      setError("A basket cannot contain products in different currencies.");
+      return;
+    }
+    setBasket((old) => {
+      const found = old.find((line) => line.product.id === product.id);
+      return found
+        ? old.map((line) => line.product.id === product.id ? { ...line, quantity: line.quantity + 1 } : line)
+        : [...old, { product, quantity: 1 }];
+    });
+    setError("");
+    setReceipt(null);
+  }
+
+  function setBasketQuantity(productId: string, quantity: number) {
+    if (checkoutSaleId) return;
+    setBasket((old) => quantity <= 0 ? old.filter((line) => line.product.id !== productId) : old.map((line) => line.product.id === productId ? { ...line, quantity: Math.min(10000, quantity) } : line));
+  }
+
+  async function collectCash() {
+    if (!tenantId || !basket.length || busy) return;
+    const tenderedMinor = Math.round(Number(tendered) * 100);
+    if (!Number.isSafeInteger(tenderedMinor) || tenderedMinor <= 0) {
+      setError("Enter a valid cash amount received.");
+      return;
+    }
+    setBusy(true); setError(""); setNotice("");
+    try {
+      let saleId = checkoutSaleId;
+      let saleLinesForReceipt = pendingSaleLines.length ? pendingSaleLines : basket;
+      if (!saleId) {
+        const sale = await api<{ id: string; amount_minor: number; currency: string; lines: Array<{ product_id: string; name: string; sku: string | null; quantity: number; unit_price_minor: number; tax_rate_bps: number }> }>("sales/basket", {
+          method: "POST", tenantId,
+          body: { lines: basket.map((line) => ({ product_id: line.product.id, quantity: line.quantity })) },
+        });
+        saleId = sale.id;
+        const snapshots = sale.lines.map((line) => ({ product: { id: line.product_id, name: line.name, sku: line.sku, unit_price_minor: line.unit_price_minor, currency: sale.currency, tax_rate_bps: line.tax_rate_bps, is_active: true }, quantity: line.quantity }));
+        setPendingSaleLines(snapshots);
+        saleLinesForReceipt = snapshots;
+        setCheckoutSaleId(saleId);
+      }
+      const paid = await api<CashReceipt>("sales/" + saleId + "/payments/cash", {
+        method: "POST", tenantId, body: { tendered_minor: tenderedMinor },
+      });
+      setReceipt(paid);
+      setReceiptLines(saleLinesForReceipt);
+      setBasket([]);
+      setPendingSaleLines([]);
+      setTendered("");
+      setCheckoutSaleId("");
+      setNotice("Cash payment recorded. Change due: " + formatMoney(paid.change_minor, paid.currency));
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 400) setError("Cash received is below the server-calculated total, or the amount is invalid. Adjust the tender and retry.");
+      else setError(errorText(reason));
+    } finally { setBusy(false); }
+  }
+
+  function cancelBasket() {
+    if (checkoutSaleId) {
+      setError("This basket already has an unpaid sale record. Complete its payment before starting another basket.");
+      return;
+    }
+    setBasket([]);
+    setTendered("");
+  }
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError("");
@@ -230,7 +323,7 @@ export default function Home() {
   </section></main>;
 
   const nav: { id: Section; label: string }[] = [
-    { id: "overview", label: "Overview" }, { id: "business", label: "Business & locations" },
+    { id: "overview", label: "Overview" }, { id: "pos", label: "Till / checkout" }, { id: "business", label: "Business & locations" },
     { id: "staff", label: "Staff" }, { id: "roles", label: "Roles & permissions" },
   ];
 
@@ -259,6 +352,45 @@ export default function Home() {
             <article className="stat"><span>Team members</span><b>{members.length || "—"}</b><small>Staff list loads when opened</small></article>
           </div>
           <section className="panel"><p className="eyebrow">SELECTED BUSINESS</p><h3>{selectedBusiness?.trading_name || selectedBusiness?.legal_name || "No business selected"}</h3><p className="muted">{selectedBusiness ? selectedBusiness.country_code + " · " + selectedBusiness.currency_code + " · " + selectedBusiness.timezone : "Create a business to get started."}</p><button className="secondary" onClick={() => setSection("business")}>Manage business</button></section>
+        </div>}
+
+        {section === "pos" && <div className="pos-layout">
+          <section className="panel">
+            <div className="pos-heading"><div><p className="eyebrow">PRODUCT CATALOGUE</p><h3>Choose items</h3></div><button className="quiet" onClick={() => void loadProducts()} disabled={busy}>Refresh</button></div>
+            <Input label="Search products" value={productSearch} onChange={setProductSearch} />
+            <div className="product-grid">
+              {products.filter((product) => (product.name + " " + (product.sku ?? "")).toLowerCase().includes(productSearch.toLowerCase())).map((product) =>
+                <button className="product-tile" key={product.id} onClick={() => addToBasket(product)} disabled={busy || !!checkoutSaleId}>
+                  <b>{product.name}</b><small>{product.sku || "No SKU"} · {product.tax_rate_bps / 100}% VAT</small><strong>{formatMoney(product.unit_price_minor, product.currency)}</strong>
+                </button>
+              )}
+            </div>
+            {!products.length && <p className="muted">No active products found. Add products in the catalogue before taking sales.</p>}
+          </section>
+          <section className="panel basket-panel">
+            <p className="eyebrow">CURRENT SALE</p><h3>Basket</h3>
+            {basket.map((line) => <div className="basket-row" key={line.product.id}>
+              <div className="basket-description"><b>{line.product.name}</b><small>{formatMoney(line.product.unit_price_minor, line.product.currency)} each</small></div>
+              <div className="quantity-controls"><button aria-label={"Remove one " + line.product.name} onClick={() => setBasketQuantity(line.product.id, line.quantity - 1)} disabled={!!checkoutSaleId}>−</button><span>{line.quantity}</span><button aria-label={"Add one " + line.product.name} onClick={() => setBasketQuantity(line.product.id, line.quantity + 1)} disabled={!!checkoutSaleId}>+</button><button className="remove-line" aria-label={"Remove " + line.product.name} onClick={() => setBasketQuantity(line.product.id, 0)} disabled={!!checkoutSaleId}>×</button></div>
+              <b>{formatMoney(line.product.unit_price_minor * line.quantity, line.product.currency)}</b>
+            </div>)}
+            {!basket.length && <p className="muted">Your basket is empty. Select products to begin.</p>}
+            <div className="basket-total"><span>Total due</span><strong>{formatMoney(basketTotal, basketCurrency)}</strong></div>
+            <label className="field"><span>Cash received ({basketCurrency})</span><input inputMode="decimal" type="number" min="0" step="0.01" value={tendered} onChange={(event) => setTendered(event.target.value)} placeholder="0.00" /></label>
+            <div className="cash-shortcuts">{[basketTotal, 5000, 10000, 20000].filter((value, index, values) => value > 0 && values.indexOf(value) === index).map((value) => <button className="secondary" key={value} onClick={() => setTendered((value / 100).toFixed(2))}>{formatMoney(value)}</button>)}</div>
+            <div className="pos-actions"><button className="quiet danger" onClick={cancelBasket} disabled={!basket.length || busy || !!checkoutSaleId}>Clear basket</button><button className="primary" onClick={() => void collectCash()} disabled={!basket.length || busy || !tendered}>{busy ? "Processing…" : "Take cash payment"}</button></div>
+            {checkoutSaleId && <p className="fine">An unpaid sale has been created. Retry payment here; do not create a duplicate sale.</p>}
+          </section>
+          {receipt && <section className="panel receipt-panel">
+            <p className="eyebrow">PAYMENT COMPLETE</p><h3>Receipt</h3>
+            <p>Sale {receipt.sale_id}</p>
+            {receiptLines.map((line) => <div className="list-row" key={line.product.id}><span>{line.quantity} × {line.product.name}</span><b>{formatMoney(line.product.unit_price_minor * line.quantity, receipt.currency)}</b></div>)}
+            <div className="receipt-amount"><span>Total</span><b>{formatMoney(receipt.amount_minor, receipt.currency)}</b></div>
+            <div className="list-row"><span>Cash received</span><b>{formatMoney(receipt.tendered_minor, receipt.currency)}</b></div>
+            <div className="list-row"><span>Change</span><b>{formatMoney(receipt.change_minor, receipt.currency)}</b></div>
+            <p className="fine">Payment ID: {receipt.payment_id}</p>
+            <button className="secondary" onClick={() => window.print()}>Print receipt</button>
+          </section>}
         </div>}
 
         {section === "business" && <div className="columns">
