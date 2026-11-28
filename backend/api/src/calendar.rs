@@ -243,8 +243,8 @@ async fn access_token(
             tracing::error!(%err, "Google Calendar token lookup transaction failed");
             error(StatusCode::INTERNAL_SERVER_ERROR, "calendar connection could not be loaded")
         })?;
-    let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT refresh_token_enc,calendar_id FROM google_calendar_connections WHERE tenant_id=$1 AND business_id=$2 AND connection_status='connected'",
+    let row = sqlx::query_as::<_, (String, String, Option<String>, Option<DateTime<Utc>>)>(
+        "SELECT refresh_token_enc,calendar_id,access_token_enc,token_expires_at FROM google_calendar_connections WHERE tenant_id=$1 AND business_id=$2 AND connection_status='connected'",
     )
     .bind(context.tenant_id)
     .bind(business_id)
@@ -259,6 +259,13 @@ async fn access_token(
         tracing::error!(%err, "Google Calendar token lookup commit failed");
         error(StatusCode::INTERNAL_SERVER_ERROR, "calendar connection could not be loaded")
     })?;
+    if let (Some(access_enc), Some(expires_at)) = (&row.2, row.3) {
+        if expires_at > Utc::now() + chrono::Duration::seconds(60) {
+            let access = integration_crypto::decrypt(access_enc)
+                .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "Google Calendar credentials cannot be decrypted"))?;
+            return Ok((access, row.1));
+        }
+    }
     let refresh_token = integration_crypto::decrypt(&row.0)
         .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "Google Calendar credentials cannot be decrypted"))?;
     let (client_id, client_secret) = (
@@ -294,6 +301,32 @@ async fn access_token(
     if access.is_empty() {
         return Err(error(StatusCode::BAD_GATEWAY, "Google did not issue an access token"));
     }
+    let access_enc = integration_crypto::encrypt(access)
+        .map_err(|_| error(StatusCode::SERVICE_UNAVAILABLE, "integration encryption is not configured"))?;
+    let expires = token["expires_in"].as_i64().unwrap_or(3600).clamp(60, 86_400);
+    let mut tx = begin_tenant_transaction(state, context)
+        .await
+        .map_err(|err| {
+            tracing::error!(%err, "Google token persistence transaction failed");
+            error(StatusCode::INTERNAL_SERVER_ERROR, "calendar credentials could not be refreshed")
+        })?;
+    sqlx::query(
+        "UPDATE google_calendar_connections SET access_token_enc=$3,token_expires_at=now()+($4::text || ' seconds')::interval,updated_at=now() WHERE tenant_id=$1 AND business_id=$2",
+    )
+    .bind(context.tenant_id)
+    .bind(business_id)
+    .bind(access_enc)
+    .bind(expires)
+    .execute(&mut *tx)
+    .await
+    .map_err(|err| {
+        tracing::error!(%err, "Google Calendar access token persistence failed");
+        error(StatusCode::INTERNAL_SERVER_ERROR, "calendar credentials could not be refreshed")
+    })?;
+    tx.commit().await.map_err(|err| {
+        tracing::error!(%err, "Google Calendar token persistence commit failed");
+        error(StatusCode::INTERNAL_SERVER_ERROR, "calendar credentials could not be refreshed")
+    })?;
     Ok((access.to_string(), row.1))
 }
 
