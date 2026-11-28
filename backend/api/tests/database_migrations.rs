@@ -156,13 +156,14 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     }
 
     for (tenant_id, legal_name) in [(tenant_a, "Tenant A Ltd"), (tenant_b, "Tenant B Ltd")] {
-        let business_id: uuid::Uuid =
-            sqlx::query_scalar("INSERT INTO businesses (tenant_id, legal_name) VALUES ($1, $2) RETURNING id")
-                .bind(tenant_id)
-                .bind(legal_name)
-                .fetch_one(&pool)
-                .await
-                .expect("test business should be created");
+        let business_id: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO businesses (tenant_id, legal_name) VALUES ($1, $2) RETURNING id",
+        )
+        .bind(tenant_id)
+        .bind(legal_name)
+        .fetch_one(&pool)
+        .await
+        .expect("test business should be created");
         sqlx::query(
             "INSERT INTO business_locations (tenant_id, business_id, name, location_code) \
              VALUES ($1, $2, $3, 'MAIN')",
@@ -229,11 +230,10 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         .expect("tenant-scoped query should succeed");
     assert_eq!(visible, 1, "tenant A must see only its own business");
 
-    let own_locations: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM business_locations")
-            .fetch_one(&mut *tx)
-            .await
-            .expect("tenant-scoped location query should succeed");
+    let own_locations: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM business_locations")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("tenant-scoped location query should succeed");
     assert_eq!(own_locations, 1, "tenant A must see only its own location");
 
     let other_tenant_locations: i64 = sqlx::query_scalar(
