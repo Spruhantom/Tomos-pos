@@ -1,5 +1,6 @@
 mod audit;
 mod auth;
+mod basket;
 mod catalogue;
 mod sales;
 pub(crate) mod sumup;
@@ -308,6 +309,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     auth::PermissionState {
                         auth: auth_state.clone(),
                         permission_key: "catalogue.read",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
+            "/api/v1/sales/basket",
+            post(basket::create_basket_sale)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "sales.manage",
                     },
                     auth::require_permission,
                 ))
