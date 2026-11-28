@@ -1565,3 +1565,180 @@ pub async fn accept_staff_invitation(
     );
     response
 }
+
+#[derive(FromRow)]
+struct StaffMembershipListRow {
+    membership_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+    email: String,
+    display_name: String,
+    status: String,
+    roles: Vec<String>,
+}
+
+/// List memberships for the selected tenant. The query is tenant-scoped by
+/// both the transaction context and an explicit tenant predicate.
+pub async fn list_staff_memberships(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+) -> Response {
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff membership list transaction failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "staff could not be listed");
+        }
+    };
+
+    let rows = match sqlx::query_as::<_, StaffMembershipListRow>(
+        "SELECT tm.id AS membership_id, u.id AS user_id, u.email, u.display_name, \
+                tm.status, \
+                COALESCE(array_agg(r.role_key ORDER BY r.role_key) \
+                    FILTER (WHERE r.role_key IS NOT NULL), ARRAY[]::text[]) AS roles \
+         FROM tenant_memberships tm \
+         JOIN users u ON u.id = tm.user_id \
+         LEFT JOIN membership_roles mr \
+           ON mr.tenant_id = tm.tenant_id AND mr.membership_id = tm.id \
+         LEFT JOIN roles r ON r.tenant_id = mr.tenant_id AND r.id = mr.role_id \
+         WHERE tm.tenant_id = $1 \
+         GROUP BY tm.id, u.id \
+         ORDER BY u.display_name, u.email_normalized \
+         LIMIT 200",
+    )
+    .bind(context.tenant_id)
+    .fetch_all(&mut *tx)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff membership list query failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "staff could not be listed");
+        }
+    };
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "staff membership list transaction commit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "staff could not be listed");
+    }
+
+    let members = rows
+        .into_iter()
+        .map(|row| serde_json::json!({
+            "membership_id": row.membership_id,
+            "user_id": row.user_id,
+            "email": row.email,
+            "display_name": row.display_name,
+            "status": row.status,
+            "roles": row.roles
+        }))
+        .collect::<Vec<_>>();
+
+    Json(serde_json::json!({ "members": members, "limit": 200 })).into_response()
+}
+
+#[derive(FromRow)]
+struct StaffMembershipDeactivationRow {
+    user_id: uuid::Uuid,
+    status: String,
+    is_owner: bool,
+}
+
+/// Remove a staff membership from this tenant without disabling the user's
+/// global account or affecting memberships in other tenants.
+pub async fn deactivate_staff_membership(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    axum::extract::Path(membership_id): axum::extract::Path<uuid::Uuid>,
+    headers: HeaderMap,
+) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+
+    if membership_id == context.membership_id {
+        return error(StatusCode::CONFLICT, "you cannot remove your own membership");
+    }
+
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff membership deactivation transaction failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "staff member could not be removed");
+        }
+    };
+
+    let member = match sqlx::query_as::<_, StaffMembershipDeactivationRow>(
+        "SELECT tm.user_id, tm.status, \
+                EXISTS ( \
+                    SELECT 1 FROM membership_roles mr \
+                    JOIN roles r ON r.tenant_id = mr.tenant_id AND r.id = mr.role_id \
+                    WHERE mr.tenant_id = tm.tenant_id \
+                      AND mr.membership_id = tm.id AND r.role_key = 'owner' \
+                ) AS is_owner \
+         FROM tenant_memberships tm \
+         WHERE tm.id = $1 AND tm.tenant_id = $2 \
+         FOR UPDATE",
+    )
+    .bind(membership_id)
+    .bind(context.tenant_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(member)) => member,
+        Ok(None) => return error(StatusCode::NOT_FOUND, "staff membership was not found"),
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff membership deactivation lookup failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "staff member could not be removed");
+        }
+    };
+
+    if member.is_owner {
+        return error(StatusCode::CONFLICT, "owner memberships cannot be removed here");
+    }
+    if member.status != "active" {
+        return error(StatusCode::CONFLICT, "only an active membership can be removed");
+    }
+
+    let updated = match sqlx::query(
+        "UPDATE tenant_memberships SET status = 'removed', updated_at = now() \
+         WHERE id = $1 AND tenant_id = $2 AND status = 'active'",
+    )
+    .bind(membership_id)
+    .bind(context.tenant_id)
+    .execute(&mut *tx)
+    .await
+    {
+        Ok(result) => result,
+        Err(db_error) => {
+            tracing::error!(%db_error, "staff membership deactivation update failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "staff member could not be removed");
+        }
+    };
+
+    if updated.rows_affected() != 1 {
+        return error(StatusCode::CONFLICT, "membership is no longer active");
+    }
+
+    if let Err(db_error) = crate::audit::record_event(
+        &mut tx,
+        &context,
+        crate::audit::AuditEventType::StaffDeactivated,
+        crate::audit::AuditEntityType::Membership,
+        Some(membership_id),
+        serde_json::json!({ "status": "removed" }),
+    )
+    .await
+    {
+        tracing::error!(%db_error, "staff membership deactivation audit event failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "staff member could not be removed");
+    }
+
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "staff membership deactivation commit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "staff member could not be removed");
+    }
+
+    let _ = member.user_id;
+    StatusCode::NO_CONTENT.into_response()
+}
+
