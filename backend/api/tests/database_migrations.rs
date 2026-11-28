@@ -80,7 +80,7 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     .expect("test runtime role should exist");
 
     sqlx::query(
-        "GRANT SELECT ON tenants, businesses, business_locations, tenant_memberships, audit_events \
+        "GRANT SELECT ON tenants, businesses, business_locations, tenant_memberships, audit_events, staff_invitations \
          TO tomos_pos_rls_test",
     )
     .execute(&pool)
