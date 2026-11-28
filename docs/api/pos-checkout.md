@@ -24,7 +24,7 @@ Till operations require `pos.till.manage`. Cash expectations include the opening
 
 Cash requires `cash_received_minor` to cover the total. The API atomically creates the sale, line snapshots, captured cash tender and audit event, then returns the change due. The transaction cannot be partially committed.
 
-Card terminal checkout creates an `awaiting_payment` sale and a `pending` card-terminal tender. PayPal checkout creates an `awaiting_payment` sale and a `pending` PayPal tender, then uses the multiparty PayPal order and capture endpoints documented in [PayPal multiparty integration](../payments/paypal-multiparty.md). It does not mark the sale paid, and the UI instructs staff not to release goods. A provider adapter, authenticated terminal response/webhook, signature validation, idempotent capture and reconciliation are still required before a card payment can be confirmed. No PAN or CVV is accepted or stored.
+Card terminal checkout creates an `awaiting_payment` sale and a `pending` card-terminal tender. PayPal checkout creates an `awaiting_payment` sale and a `pending` PayPal tender, then uses the multiparty PayPal order and capture endpoints documented in [PayPal multiparty integration](../payments/paypal-multiparty.md). SumUp checkout creates a `sumup_terminal` tender and starts an asynchronous Solo reader checkout using the [SumUp integration](../payments/sumup.md). It does not mark the sale paid, and the UI instructs staff not to release goods. A provider adapter, authenticated terminal response/webhook, signature validation, idempotent capture and reconciliation are still required before a card payment can be confirmed. No PAN or CVV is accepted or stored.
 
 ## Integrity and limitations
 
@@ -35,3 +35,14 @@ Card terminal checkout creates an `awaiting_payment` sale and a `pending` card-t
 - Cash tenders and completed sales are protected against mutation. Refunds and reversals must use compensating records.
 - Split tender, discounts, stock decrement, receipts, refunds, terminal-provider integration and offline checkout are not yet implemented.
 - This is pre-alpha and must not be used to process live payments or hold live financial records.
+
+
+## Customers and loyalty
+
+- `GET /api/v1/loyalty/customers?business_id={uuid}` — customer directory and balances.
+- `POST /api/v1/loyalty/customers/create` — create a customer.
+- `GET/POST /api/v1/loyalty/programs?business_id={uuid}` — read or configure points earning and redemption.
+- `POST /api/v1/loyalty/customers/{customer_id}/redeem` — issue a reward code against available points.
+- Checkout accepts optional `customer_id` and `reward_code`. Completed sales automatically award points; issued reward codes are reserved during pending external payments and redeemed only after capture.
+
+See [calendar and loyalty integration](../integrations/calendar-loyalty.md) for the SumUp Bookings calendar bridge and loyalty boundaries.
