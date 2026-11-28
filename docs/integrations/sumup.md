@@ -31,8 +31,8 @@ Do not advertise every SumUp model as Cloud API compatible. Query the official d
 2. Send the amount in integer minor units, reader ID, unique client transaction ID, HTTPS return URL and affiliate key to SumUp.
 3. Treat the API response as checkout acceptance only. The sale remains unpaid.
 4. Receive the `solo.transaction.updated` callback at a publicly reachable HTTPS endpoint.
-5. Authenticate/validate the callback according to SumUp's current webhook guidance, correlate it to the stored client transaction ID, and make processing idempotent.
-6. Only a verified final successful transaction may transition the payment attempt to confirmed and the sale to paid.
+5. Validate the event type, merchant code and exact client transaction ID against the pending attempt. The Solo Cloud API webhook example does not document a cryptographic signature header; protect each callback URL with HTTPS and a high-entropy, per-attempt unguessable token. Do not claim signature verification.
+6. Only a matching final successful event may transition the payment attempt to successful. The POS sale must remain unpaid until this confirmation is durably stored; sale integration is still outstanding.
 7. Failed, cancelled, timed-out or ambiguous attempts remain unpaid and are available for reconciliation. Never create a second charge automatically after an ambiguous network failure.
 
 ## Security and operational requirements
@@ -41,7 +41,7 @@ Do not advertise every SumUp model as Cloud API compatible. Query the official d
 - Scope merchant credentials and paired reader records to a tenant.
 - Keep cardholder data out of TomOS POS.
 - Require HTTPS for callbacks and production API traffic.
-- Verify callback authenticity using the currently documented SumUp mechanism before accepting payment state changes.
+- Do not invent an HMAC/signature check for Solo Cloud API: its documented callback contract shows no signature header. Use a per-attempt secret callback URL, HTTPS, merchant/reference matching, and provider reconciliation where available.
 - Deduplicate webhook events and enforce uniqueness for provider transaction IDs and client transaction IDs.
 - Record append-only audit events for pairing, checkout initiation, final result, termination and refund actions.
 - Use provider transaction lookup/reconciliation to recover missed callbacks.
@@ -53,7 +53,7 @@ Do not advertise every SumUp model as Cloud API compatible. Query the official d
 - [x] Integer minor-unit amount model and HTTPS callback validation.
 - [x] Provider capability types for Cloud API, mobile SDK and Payment Switch paths.
 - [ ] Tenant-scoped credential and reader persistence.
-- [ ] Authenticated webhook endpoint, signature/authenticity validation and idempotent event storage.
+- [x] Solo webhook event parsing, merchant/reference matching and terminal-state/idempotency rules in the Rust bridge.\n- [ ] Public HTTPS callback endpoint, per-attempt callback token storage and durable idempotent event storage.
 - [ ] POS checkout and sale-state integration.
 - [ ] Refund workflow and transaction reconciliation.
 - [ ] Android companion adapter for supported Solo Lite/Air SDK workflows.
