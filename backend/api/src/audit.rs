@@ -9,6 +9,7 @@ pub enum AuditEventType {
     BusinessCreated,
     StaffInvited,
     StaffInvitationAccepted,
+    StaffInvitationRevoked,
 }
 
 impl AuditEventType {
@@ -17,6 +18,7 @@ impl AuditEventType {
             Self::BusinessCreated => "business.created",
             Self::StaffInvited => "staff.invited",
             Self::StaffInvitationAccepted => "staff.invitation_accepted",
+            Self::StaffInvitationRevoked => "staff.invitation_revoked",
         }
     }
 }
