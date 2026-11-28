@@ -1092,7 +1092,6 @@ pub async fn create_staff_invitation(
     .into_response()
 }
 
-
 #[derive(Serialize)]
 struct StaffInvitationListItem {
     id: String,
@@ -1122,7 +1121,10 @@ pub async fn list_staff_invitations(
         Ok(tx) => tx,
         Err(db_error) => {
             tracing::error!(%db_error, "staff invitation list transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "invitations could not be listed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitations could not be listed",
+            );
         }
     };
 
@@ -1137,7 +1139,10 @@ pub async fn list_staff_invitations(
         Ok(rows) => rows,
         Err(db_error) => {
             tracing::error!(%db_error, "staff invitation list query failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "invitations could not be listed");
+            return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitations could not be listed",
+        );
         }
     };
 
@@ -1147,26 +1152,29 @@ pub async fn list_staff_invitations(
     }
 
     let now = chrono::Utc::now();
-    let invitations = rows.into_iter().map(|row| {
-        let status = if row.accepted_at.is_some() {
-            "accepted"
-        } else if row.revoked_at.is_some() {
-            "revoked"
-        } else if row.expires_at <= now {
-            "expired"
-        } else {
-            "pending"
-        };
-        StaffInvitationListItem {
-            id: row.id.to_string(),
-            email: row.email_normalized,
-            created_at: row.created_at.to_rfc3339(),
-            expires_at: row.expires_at.to_rfc3339(),
-            accepted_at: row.accepted_at.map(|value| value.to_rfc3339()),
-            revoked_at: row.revoked_at.map(|value| value.to_rfc3339()),
-            status,
-        }
-    }).collect::<Vec<_>>();
+    let invitations = rows
+        .into_iter()
+        .map(|row| {
+            let status = if row.accepted_at.is_some() {
+                "accepted"
+            } else if row.revoked_at.is_some() {
+                "revoked"
+            } else if row.expires_at <= now {
+                "expired"
+            } else {
+                "pending"
+            };
+            StaffInvitationListItem {
+                id: row.id.to_string(),
+                email: row.email_normalized,
+                created_at: row.created_at.to_rfc3339(),
+                expires_at: row.expires_at.to_rfc3339(),
+                accepted_at: row.accepted_at.map(|value| value.to_rfc3339()),
+                revoked_at: row.revoked_at.map(|value| value.to_rfc3339()),
+                status,
+            }
+        })
+        .collect::<Vec<_>>();
 
     Json(serde_json::json!({ "invitations": invitations, "limit": 200 })).into_response()
 }
@@ -1193,7 +1201,10 @@ pub async fn revoke_staff_invitation(
         Ok(tx) => tx,
         Err(db_error) => {
             tracing::error!(%db_error, "staff invitation revocation transaction failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "invitation could not be revoked");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invitation could not be revoked",
+            );
         }
     };
 
@@ -1214,8 +1225,14 @@ pub async fn revoke_staff_invitation(
         }
     };
 
-    if invitation.accepted_at.is_some() || invitation.revoked_at.is_some() || invitation.expires_at <= chrono::Utc::now() {
-        return error(StatusCode::CONFLICT, "only a pending invitation can be revoked");
+    if invitation.accepted_at.is_some()
+        || invitation.revoked_at.is_some()
+        || invitation.expires_at <= chrono::Utc::now()
+    {
+        return error(
+            StatusCode::CONFLICT,
+            "only a pending invitation can be revoked",
+        );
     }
 
     if let Err(db_error) = sqlx::query(
