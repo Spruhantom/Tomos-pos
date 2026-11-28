@@ -338,6 +338,37 @@ pub async fn record_cash_movement(
             return error(StatusCode::INTERNAL_SERVER_ERROR, "cash movement could not be recorded");
         }
     };
+    let available_cash: Option<i64> = match sqlx::query_scalar(
+        "SELECT ts.opening_float_minor \
+         + COALESCE((SELECT SUM(pt.amount_minor) FROM payment_tenders pt JOIN sales s ON s.tenant_id = pt.tenant_id AND s.id = pt.sale_id WHERE pt.tenant_id = ts.tenant_id AND s.till_session_id = ts.id AND pt.method = 'cash' AND pt.status = 'captured'), 0) \
+         + COALESCE((SELECT SUM(cm.amount_minor) FROM till_cash_movements cm WHERE cm.tenant_id = ts.tenant_id AND cm.till_session_id = ts.id AND cm.movement_type = 'paid_in'), 0) \
+         - COALESCE((SELECT SUM(cm.amount_minor) FROM till_cash_movements cm WHERE cm.tenant_id = ts.tenant_id AND cm.till_session_id = ts.id AND cm.movement_type = 'paid_out'), 0) \
+         FROM till_sessions ts WHERE ts.tenant_id = $1 AND ts.id = $2 AND ts.status = 'open' FOR UPDATE",
+    )
+    .bind(context.tenant_id)
+    .bind(till_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(value) => value,
+        Err(db_error) => {
+            tracing::error!(%db_error, "cash drawer balance lookup failed");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "cash movement could not be recorded",
+            );
+        }
+    };
+    let Some(available_cash) = available_cash else {
+        return error(StatusCode::NOT_FOUND, "open till was not found");
+    };
+    if request.movement_type == "paid_out" && request.amount_minor > available_cash {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "cash paid out cannot exceed the available drawer balance",
+        );
+    }
+
     let movement_id = match sqlx::query_scalar::<_, uuid::Uuid>(
         "INSERT INTO till_cash_movements (tenant_id, till_session_id, movement_type, amount_minor, reason, recorded_by) \
          SELECT $1, id, $3, $4, $5, $6 FROM till_sessions WHERE tenant_id = $1 AND id = $2 AND status = 'open' RETURNING id",
