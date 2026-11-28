@@ -1,5 +1,6 @@
 mod audit;
 mod auth;
+#[rustfmt::skip]
 mod pos;
 
 use axum::{
