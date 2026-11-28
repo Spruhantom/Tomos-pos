@@ -20,7 +20,7 @@ Till operations require `pos.till.manage`. Cash expectations include the opening
 
 ## Checkout
 
-`POST /api/v1/pos/sales` accepts a business, location, open till, product/quantity basket and payment method.
+`POST /api/v1/pos/sales` accepts a business, location, open till, product/quantity basket, payment method and a client-generated UUID `idempotency_key`. Reusing the same key returns the original sale/tender rather than creating a second sale; the key is serialized with a transaction advisory lock and protected by a tenant-scoped unique constraint.
 
 Cash requires `cash_received_minor` to cover the total. The API atomically creates the sale, line snapshots, captured cash tender and audit event, then returns the change due. The transaction cannot be partially committed.
 
@@ -30,6 +30,7 @@ Card terminal checkout creates an `awaiting_payment` sale and a `pending` card-t
 
 - Tenant RLS applies to catalogue, sale counters, tills, sales, sale lines, tenders and cash movements.
 - Sale numbers are allocated transactionally per business.
+- Checkout retries are idempotent per tenant, preventing accidental duplicate cash records or duplicate card intents.
 - Sale totals use integer arithmetic; tax is extracted from the VAT-inclusive gross price with deterministic half-up rounding.
 - Cash tenders and completed sales are protected against mutation. Refunds and reversals must use compensating records.
 - Split tender, discounts, stock decrement, receipts, refunds, terminal-provider integration and offline checkout are not yet implemented.
