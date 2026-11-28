@@ -711,6 +711,26 @@ pub async fn checkout(
         return error(StatusCode::NOT_FOUND, "business was not found");
     };
 
+    if request.payment_method == "paypal" {
+        let paypal_connected: bool = match sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM business_paypal_accounts WHERE tenant_id = $1 AND business_id = $2 AND onboarding_status = 'connected')",
+        )
+        .bind(context.tenant_id)
+        .bind(request.business_id)
+        .fetch_one(&mut *tx)
+        .await
+        {
+            Ok(connected) => connected,
+            Err(db_error) => {
+                tracing::error!(%db_error, "PayPal connection lookup failed");
+                return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal connection could not be checked");
+            }
+        };
+        if !paypal_connected {
+            return error(StatusCode::CONFLICT, "connect this business's PayPal account before taking PayPal payments");
+        }
+    }
+
     let counter: i64 = match sqlx::query_scalar(
         "INSERT INTO business_sale_counters (tenant_id, business_id, next_number) VALUES ($1,$2,2) \
          ON CONFLICT (tenant_id, business_id) DO UPDATE SET next_number = business_sale_counters.next_number + 1 \
