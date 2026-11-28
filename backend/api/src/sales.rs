@@ -202,6 +202,12 @@ pub async fn start_sumup_payment(
     )
     .await
     .map_err(|error| {
+        if error
+            .as_database_error()
+            .is_some_and(|database_error| database_error.is_unique_violation())
+        {
+            return StatusCode::CONFLICT;
+        }
         tracing::error!(%error, sale_id = %sale.id, "SumUp payment attempt could not be stored");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
