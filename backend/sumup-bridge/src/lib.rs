@@ -12,7 +12,7 @@ mod models;
 pub use client::SumUpClient;
 pub use config::SumUpConfig;
 pub use error::{Result, SumUpError};
-pub use models::{CheckoutRequest, Reader, ReaderStatus};
+pub use models::{CheckoutRequest, Money, Reader, ReaderStatus};
 
 /// Provider identity used by the POS payment-adapter registry.
 pub const PROVIDER_ID: &str = "sumup";
