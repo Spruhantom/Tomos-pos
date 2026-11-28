@@ -466,6 +466,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
         )
         .route(
+            "/api/v1/sumup/status",
+            get(sumup::connection_status)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "integrations.manage",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
+        )
+        .route(
             "/api/v1/sumup/readers",
             get(sumup::list_readers)
                 .route_layer(from_fn_with_state(
@@ -508,6 +520,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/api/v1/calendar/oauth/callback",
             get(calendar::oauth_callback),
+        )
+        .route(
+            "/api/v1/calendar/status",
+            get(calendar::connection_status)
+                .route_layer(from_fn_with_state(
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "calendar.read",
+                    },
+                    auth::require_permission,
+                ))
+                .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
         )
         .route(
             "/api/v1/calendar/appointments",
