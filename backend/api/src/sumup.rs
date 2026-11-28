@@ -103,7 +103,7 @@ pub async fn connect_business(
         .append_pair("response_type", "code")
         .append_pair("client_id", &client_id)
         .append_pair("redirect_uri", &redirect_uri)
-        .append_pair("scope", "transactions.history user.profile_readonly payments")
+        .append_pair("scope", "transactions.history user.profile_readonly readers.read readers.write")
         .append_pair("state", &state_id.to_string());
     Json(json!({ "action_url": url.to_string() })).into_response()
 }
@@ -241,12 +241,20 @@ pub async fn oauth_callback(
     if merchants.is_empty() {
         return Redirect::to(&format!("{app_origin}/integrations?sumup=no_merchant")).into_response();
     }
-    let merchant_code = if merchants.len() == 1 {
+    let scopes = token_response["scope"].as_str().unwrap_or_default();
+    let reader_scope_granted = scopes.split_whitespace().any(|scope| scope == "readers.write");
+    let merchant_code = if reader_scope_granted && merchants.len() == 1 {
         merchants[0]["merchant_code"].as_str().map(str::to_string)
     } else {
         None
     };
-    let scopes = token_response["scope"].as_str().unwrap_or_default();
+    let connection_status = if !reader_scope_granted {
+        "reauthorize"
+    } else if merchant_code.is_some() {
+        "connected"
+    } else {
+        "pending"
+    };
     let expires_in = token_response["expires_in"].as_i64().unwrap_or(3600).clamp(60, 86_400);
     if sqlx::query("SELECT set_config('app.tenant_id', $1, true)")
         .bind(tenant_id.to_string())
@@ -258,7 +266,7 @@ pub async fn oauth_callback(
     }
     let saved = sqlx::query(
         "INSERT INTO sumup_business_accounts (tenant_id, business_id, merchant_code, access_token_enc, refresh_token_enc, token_expires_at, granted_scopes, available_merchants, connection_status, connected_at) \
-         VALUES ($1,$2,$3,$4,$5,now() + ($6::text || ' seconds')::interval,$7,$8,CASE WHEN $3::text IS NULL THEN 'pending' ELSE 'connected' END,CASE WHEN $3::text IS NULL THEN NULL ELSE now() END) \
+         VALUES ($1,$2,$3,$4,$5,now() + ($6::text || ' seconds')::interval,$7,$8,$9,CASE WHEN $9='connected' THEN now() ELSE NULL END) \
          ON CONFLICT (tenant_id,business_id) DO UPDATE SET merchant_code=EXCLUDED.merchant_code, access_token_enc=EXCLUDED.access_token_enc, refresh_token_enc=EXCLUDED.refresh_token_enc, token_expires_at=EXCLUDED.token_expires_at, granted_scopes=EXCLUDED.granted_scopes, available_merchants=EXCLUDED.available_merchants, connection_status=EXCLUDED.connection_status, connected_at=EXCLUDED.connected_at, updated_at=now()",
     )
     .bind(tenant_id)
@@ -269,6 +277,7 @@ pub async fn oauth_callback(
     .bind(expires_in)
     .bind(scopes)
     .bind(json!(merchants))
+    .bind(connection_status)
     .execute(&mut *tx)
     .await;
     if let Err(err) = saved {
@@ -283,7 +292,7 @@ pub async fn oauth_callback(
         tracing::error!(%err, "SumUp OAuth callback commit failed");
         return error(StatusCode::INTERNAL_SERVER_ERROR, "SumUp connection could not be saved");
     }
-    let status = if merchant_code.is_some() { "connected" } else { "select_merchant" };
+    let status = if connection_status == "reauthorize" { "readers_scope_required" } else if merchant_code.is_some() { "connected" } else { "select_merchant" };
     Redirect::to(&format!("{app_origin}/integrations?sumup={status}")).into_response()
 }
 
@@ -311,7 +320,7 @@ pub async fn select_merchant(
     };
     let updated = sqlx::query(
         "UPDATE sumup_business_accounts SET merchant_code=$3, connection_status='connected', connected_at=now(), updated_at=now() \
-         WHERE tenant_id=$1 AND business_id=$2 AND available_merchants @> jsonb_build_array(jsonb_build_object('merchant_code',$3))",
+         WHERE tenant_id=$1 AND business_id=$2 AND granted_scopes LIKE '%readers.write%' AND available_merchants @> jsonb_build_array(jsonb_build_object('merchant_code',$3))",
     )
     .bind(context.tenant_id)
     .bind(request.business_id)
@@ -558,9 +567,12 @@ pub async fn start_reader_checkout(
             return error(StatusCode::INTERNAL_SERVER_ERROR, "SumUp payment could not be started");
         }
     };
-    let affiliate_key = match config_value("SUMUP_AFFILIATE_KEY") {
-        Ok(value) => value,
-        Err(_) => return error(StatusCode::SERVICE_UNAVAILABLE, "SumUp Cloud API affiliate key is not configured"),
+    let (affiliate_app_id, affiliate_key) = match (
+        config_value("SUMUP_AFFILIATE_APP_ID"),
+        config_value("SUMUP_AFFILIATE_KEY"),
+    ) {
+        (Ok(app_id), Ok(key)) => (app_id, key),
+        _ => return error(StatusCode::SERVICE_UNAVAILABLE, "SumUp Cloud API affiliate credentials are not configured"),
     };
     let webhook_base = match config_value("SUMUP_READER_WEBHOOK_URL") {
         Ok(value) if value.starts_with("https://") => value,
@@ -571,7 +583,7 @@ pub async fn start_reader_checkout(
     let return_url = format!("{webhook_base}?token={webhook_token}");
     let body = json!({
         "total_amount": { "currency": sale.currency_code, "minor_unit": 2, "value": sale.total_minor },
-        "affiliate": affiliate_key,
+        "affiliate": { "app_id": affiliate_app_id, "key": affiliate_key, "foreign_transaction_id": sale_id.to_string() },
         "return_url": return_url,
     });
     let created = match reqwest::Client::new()
