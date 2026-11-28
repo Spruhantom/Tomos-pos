@@ -425,7 +425,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/api/v1/pos/sales/{sale_id}/paypal/capture",
             post(paypal::capture_order)
                 .route_layer(from_fn_with_state(
-                    auth::PermissionState { auth: auth_state.clone(), permission_key: "pos.checkout" },
+                    auth::PermissionState {
+                        auth: auth_state.clone(),
+                        permission_key: "pos.checkout",
+                    },
                     auth::require_permission,
                 ))
                 .route_layer(from_fn_with_state(auth_state.clone(), auth::require_tenant)),
