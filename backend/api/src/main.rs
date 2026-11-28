@@ -99,7 +99,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route(
             "/api/v1/products",
-            get(catalogue::list_products).post(catalogue::create_product)
+            get(catalogue::list_products)
+                .post(catalogue::create_product)
                 .route_layer(from_fn_with_state(
                     auth::PermissionState {
                         auth: auth_state.clone(),
