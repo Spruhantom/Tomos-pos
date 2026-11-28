@@ -2545,3 +2545,433 @@ mod custom_role_validation_tests {
         assert!(!valid_permission_keys(&["x".repeat(81)]));
     }
 }
+
+
+#[derive(sqlx::FromRow)]
+struct BusinessSettingsRow {
+    id: uuid::Uuid,
+    legal_name: String,
+    trading_name: Option<String>,
+    company_number: Option<String>,
+    vat_number: Option<String>,
+    country_code: String,
+    currency_code: String,
+    timezone: String,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateBusinessRequest {
+    pub legal_name: String,
+    pub trading_name: Option<String>,
+    pub company_number: Option<String>,
+    pub vat_number: Option<String>,
+    pub country_code: String,
+    pub currency_code: String,
+    pub timezone: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct BusinessLocationRow {
+    id: uuid::Uuid,
+    business_id: uuid::Uuid,
+    name: String,
+    location_code: Option<String>,
+    address_json: serde_json::Value,
+    is_active: bool,
+}
+
+#[derive(Deserialize)]
+pub struct CreateBusinessLocationRequest {
+    pub name: String,
+    pub location_code: Option<String>,
+    pub address: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateBusinessLocationRequest {
+    pub name: String,
+    pub location_code: Option<String>,
+    pub address: serde_json::Value,
+    pub is_active: bool,
+}
+
+fn valid_optional_text(value: &Option<String>, max_len: usize) -> bool {
+    value.as_ref().is_none_or(|text| {
+        text.trim().len() <= max_len && !text.chars().any(char::is_control)
+    })
+}
+
+fn valid_business_settings(request: &UpdateBusinessRequest) -> bool {
+    let legal_name = request.legal_name.trim();
+    let country = request.country_code.trim();
+    let currency = request.currency_code.trim();
+    let timezone = request.timezone.trim();
+    (1..=200).contains(&legal_name.chars().count())
+        && !legal_name.chars().any(char::is_control)
+        && valid_optional_text(&request.trading_name, 200)
+        && valid_optional_text(&request.company_number, 40)
+        && valid_optional_text(&request.vat_number, 40)
+        && country.len() == 2
+        && country.bytes().all(|byte| byte.is_ascii_uppercase())
+        && currency.len() == 3
+        && currency.bytes().all(|byte| byte.is_ascii_uppercase())
+        && (1..=80).contains(&timezone.len())
+        && !timezone.chars().any(char::is_control)
+}
+
+fn valid_location_code(value: &Option<String>) -> bool {
+    value.as_ref().is_none_or(|code| {
+        let code = code.trim();
+        (1..=24).contains(&code.len())
+            && code
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'-')
+    })
+}
+
+fn valid_location_name(value: &str) -> bool {
+    let value = value.trim();
+    (1..=120).contains(&value.chars().count())
+        && !value.chars().any(char::is_control)
+}
+
+fn valid_location_address(value: &serde_json::Value) -> bool {
+    value.is_object() && value.to_string().len() <= 8_192
+}
+
+/// List all businesses belonging to the selected tenant.
+pub async fn list_businesses(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+) -> Response {
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "business list transaction failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "businesses could not be listed");
+        }
+    };
+    let rows = match sqlx::query_as::<_, BusinessSettingsRow>(
+        "SELECT id, legal_name, trading_name, company_number, vat_number, \
+                country_code::text AS country_code, currency_code::text AS currency_code, timezone \
+         FROM businesses WHERE tenant_id = $1 ORDER BY created_at, id",
+    )
+    .bind(context.tenant_id)
+    .fetch_all(&mut *tx)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(db_error) => {
+            tracing::error!(%db_error, "business list query failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "businesses could not be listed");
+        }
+    };
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "business list commit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "businesses could not be listed");
+    }
+    let businesses = rows.into_iter().map(|row| serde_json::json!({
+        "id": row.id,
+        "legal_name": row.legal_name,
+        "trading_name": row.trading_name,
+        "company_number": row.company_number,
+        "vat_number": row.vat_number,
+        "country_code": row.country_code,
+        "currency_code": row.currency_code,
+        "timezone": row.timezone
+    })).collect::<Vec<_>>();
+    Json(serde_json::json!({ "businesses": businesses })).into_response()
+}
+
+/// Update legal and trading details for one business in the selected tenant.
+pub async fn update_business(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    axum::extract::Path(business_id): axum::extract::Path<uuid::Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<UpdateBusinessRequest>,
+) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+    if !valid_business_settings(&request) {
+        return error(StatusCode::BAD_REQUEST, "business settings are invalid");
+    }
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "business update transaction failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "business could not be updated");
+        }
+    };
+    let updated = match sqlx::query(
+        "UPDATE businesses SET legal_name = $3, trading_name = $4, company_number = $5, \
+                vat_number = $6, country_code = $7, currency_code = $8, timezone = $9, \
+                updated_at = now() \
+         WHERE tenant_id = $1 AND id = $2",
+    )
+    .bind(context.tenant_id)
+    .bind(business_id)
+    .bind(request.legal_name.trim())
+    .bind(request.trading_name.as_deref().map(str::trim).filter(|v| !v.is_empty()))
+    .bind(request.company_number.as_deref().map(str::trim).filter(|v| !v.is_empty()))
+    .bind(request.vat_number.as_deref().map(str::trim).filter(|v| !v.is_empty()))
+    .bind(request.country_code.trim())
+    .bind(request.currency_code.trim())
+    .bind(request.timezone.trim())
+    .execute(&mut *tx)
+    .await
+    {
+        Ok(result) => result,
+        Err(db_error) => {
+            tracing::error!(%db_error, "business update query failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "business could not be updated");
+        }
+    };
+    if updated.rows_affected() != 1 {
+        return error(StatusCode::NOT_FOUND, "business was not found");
+    }
+    if let Err(db_error) = crate::audit::record_event(
+        &mut tx,
+        &context,
+        crate::audit::AuditEventType::BusinessUpdated,
+        crate::audit::AuditEntityType::Business,
+        Some(business_id),
+        serde_json::json!({
+            "country_code": request.country_code.trim(),
+            "currency_code": request.currency_code.trim(),
+            "timezone": request.timezone.trim()
+        }),
+    ).await {
+        tracing::error!(%db_error, "business update audit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "business could not be updated");
+    }
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "business update commit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "business could not be updated");
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// List active and inactive locations belonging to a tenant-owned business.
+pub async fn list_business_locations(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    axum::extract::Path(business_id): axum::extract::Path<uuid::Uuid>,
+) -> Response {
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "location list transaction failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "locations could not be listed");
+        }
+    };
+    let rows = match sqlx::query_as::<_, BusinessLocationRow>(
+        "SELECT id, business_id, name, location_code, address_json, is_active \
+         FROM business_locations WHERE tenant_id = $1 AND business_id = $2 \
+         ORDER BY created_at, id",
+    )
+    .bind(context.tenant_id)
+    .bind(business_id)
+    .fetch_all(&mut *tx)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(db_error) => {
+            tracing::error!(%db_error, "location list query failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "locations could not be listed");
+        }
+    };
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "location list commit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "locations could not be listed");
+    }
+    let locations = rows.into_iter().map(|row| serde_json::json!({
+        "id": row.id,
+        "business_id": row.business_id,
+        "name": row.name,
+        "location_code": row.location_code,
+        "address": row.address_json,
+        "is_active": row.is_active
+    })).collect::<Vec<_>>();
+    Json(serde_json::json!({ "locations": locations })).into_response()
+}
+
+/// Create a location only under a business owned by the current tenant.
+pub async fn create_business_location(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    axum::extract::Path(business_id): axum::extract::Path<uuid::Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<CreateBusinessLocationRequest>,
+) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+    if !valid_location_name(&request.name)
+        || !valid_location_code(&request.location_code)
+        || !valid_location_address(&request.address)
+    {
+        return error(StatusCode::BAD_REQUEST, "location details are invalid");
+    }
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "location creation transaction failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be created");
+        }
+    };
+    let location_id = match sqlx::query_scalar::<_, uuid::Uuid>(
+        "INSERT INTO business_locations (tenant_id, business_id, name, location_code, address_json) \
+         SELECT $1, id, $3, $4, $5 FROM businesses \
+         WHERE tenant_id = $1 AND id = $2 RETURNING id",
+    )
+    .bind(context.tenant_id)
+    .bind(business_id)
+    .bind(request.name.trim())
+    .bind(request.location_code.as_deref().map(str::trim).filter(|v| !v.is_empty()))
+    .bind(&request.address)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(id)) => id,
+        Ok(None) => return error(StatusCode::NOT_FOUND, "business was not found"),
+        Err(sqlx::Error::Database(db_error)) if db_error.code().as_deref() == Some("23505") => {
+            return error(StatusCode::CONFLICT, "location code is already in use");
+        }
+        Err(db_error) => {
+            tracing::error!(%db_error, "location insert failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be created");
+        }
+    };
+    if let Err(db_error) = crate::audit::record_event(
+        &mut tx,
+        &context,
+        crate::audit::AuditEventType::LocationCreated,
+        crate::audit::AuditEntityType::Location,
+        Some(location_id),
+        serde_json::json!({ "business_id": business_id, "name": request.name.trim() }),
+    ).await {
+        tracing::error!(%db_error, "location creation audit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be created");
+    }
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "location creation commit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be created");
+    }
+    (StatusCode::CREATED, Json(serde_json::json!({ "id": location_id }))).into_response()
+}
+
+/// Update a location's details or deactivate it without deleting historical data.
+pub async fn update_business_location(
+    State(state): State<AuthState>,
+    Extension(context): Extension<AuthContext>,
+    axum::extract::Path(location_id): axum::extract::Path<uuid::Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<UpdateBusinessLocationRequest>,
+) -> Response {
+    if !origin_is_allowed(&headers, &state) {
+        return error(StatusCode::FORBIDDEN, "request origin is not allowed");
+    }
+    if !valid_location_name(&request.name)
+        || !valid_location_code(&request.location_code)
+        || !valid_location_address(&request.address)
+    {
+        return error(StatusCode::BAD_REQUEST, "location details are invalid");
+    }
+    let mut tx = match begin_tenant_transaction(&state, &context).await {
+        Ok(tx) => tx,
+        Err(db_error) => {
+            tracing::error!(%db_error, "location update transaction failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be updated");
+        }
+    };
+    let updated = match sqlx::query(
+        "UPDATE business_locations SET name = $3, location_code = $4, address_json = $5, \
+                is_active = $6, updated_at = now() \
+         WHERE tenant_id = $1 AND id = $2",
+    )
+    .bind(context.tenant_id)
+    .bind(location_id)
+    .bind(request.name.trim())
+    .bind(request.location_code.as_deref().map(str::trim).filter(|v| !v.is_empty()))
+    .bind(&request.address)
+    .bind(request.is_active)
+    .execute(&mut *tx)
+    .await
+    {
+        Ok(result) => result,
+        Err(sqlx::Error::Database(db_error)) if db_error.code().as_deref() == Some("23505") => {
+            return error(StatusCode::CONFLICT, "location code is already in use");
+        }
+        Err(db_error) => {
+            tracing::error!(%db_error, "location update query failed");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be updated");
+        }
+    };
+    if updated.rows_affected() != 1 {
+        return error(StatusCode::NOT_FOUND, "location was not found");
+    }
+    if let Err(db_error) = crate::audit::record_event(
+        &mut tx,
+        &context,
+        crate::audit::AuditEventType::LocationUpdated,
+        crate::audit::AuditEntityType::Location,
+        Some(location_id),
+        serde_json::json!({ "name": request.name.trim(), "is_active": request.is_active }),
+    ).await {
+        tracing::error!(%db_error, "location update audit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be updated");
+    }
+    if let Err(db_error) = tx.commit().await {
+        tracing::error!(%db_error, "location update commit failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be updated");
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[cfg(test)]
+mod business_settings_validation_tests {
+    use super::{
+        valid_business_settings, valid_location_address, valid_location_code,
+        valid_location_name, UpdateBusinessRequest,
+    };
+    use serde_json::json;
+
+    fn valid_business() -> UpdateBusinessRequest {
+        UpdateBusinessRequest {
+            legal_name: "Example Trading Ltd".to_string(),
+            trading_name: Some("Example".to_string()),
+            company_number: Some("12345678".to_string()),
+            vat_number: None,
+            country_code: "GB".to_string(),
+            currency_code: "GBP".to_string(),
+            timezone: "Europe/London".to_string(),
+        }
+    }
+
+    #[test]
+    fn business_settings_validate_required_codes_and_lengths() {
+        assert!(valid_business_settings(&valid_business()));
+        let mut invalid = valid_business();
+        invalid.country_code = "gbr".to_string();
+        assert!(!valid_business_settings(&invalid));
+        let mut invalid = valid_business();
+        invalid.currency_code = "gbp".to_string();
+        assert!(!valid_business_settings(&invalid));
+        let mut invalid = valid_business();
+        invalid.legal_name = " ".to_string();
+        assert!(!valid_business_settings(&invalid));
+    }
+
+    #[test]
+    fn location_fields_are_bounded_and_addresses_are_objects() {
+        assert!(valid_location_name("Main shop"));
+        assert!(!valid_location_name(" "));
+        assert!(valid_location_code(&Some("LIVERPOOL-01".to_string())));
+        assert!(!valid_location_code(&Some("bad code".to_string())));
+        assert!(valid_location_address(&json!({"city": "Liverpool"})));
+        assert!(!valid_location_address(&json!(["not", "an", "object"])));
+        assert!(!valid_location_address(&json!("address")));
+    }
+}
