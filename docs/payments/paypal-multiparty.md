@@ -10,7 +10,7 @@ A business owner or user with `business.manage` starts connection with:
 - The API creates a Partner Referrals v2 onboarding link requesting payment and refund permissions.
 - The business owner signs in to PayPal and grants consent.
 - PayPal returns to `PAYPAL_ONBOARDING_RETURN_URL` with the opaque tracking ID, PayPal merchant ID, `permissionsGranted`, and `consentStatus`.
-- The callback stores the merchant ID and marks the account connected only when both consent flags are true.
+- The callback stores the merchant ID and marks the account connected only when PayPal confirms the seller granted permissions, consented, verified their email, and has a Business account.
 
 The onboarding tracking ID is a random UUID, expires after 30 minutes, and is single-use. Merchant IDs are stored per tenant/business. TomOS does not store seller PayPal passwords or access tokens.
 
@@ -32,7 +32,7 @@ Configure `POST /api/v1/paypal/webhook` on the PayPal REST app. Set `PAYPAL_WEBH
 - `PAYMENT.CAPTURE.DENIED`
 - `PAYMENT.CAPTURE.PENDING`
 
-The completed event reconciles the tenant-scoped sale and tender. Other event types are acknowledged without changing a sale. Checkout must still capture and confirm the order server-side.
+The completed event reconciles the tenant-scoped sale and tender; a denied capture marks the pending tender failed and cancels the awaiting sale. Pending and unrelated events are acknowledged without completing a sale. Checkout still captures and confirms the order server-side.
 
 ## Required environment
 
