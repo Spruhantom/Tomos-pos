@@ -85,8 +85,8 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     .expect("test runtime role should exist");
 
     sqlx::query(
-        "GRANT SELECT ON tenants, businesses, business_locations, tenant_memberships, audit_events \
-         TO tomos_pos_rls_test",
+        "GRANT SELECT ON tenants, businesses, business_locations, tenant_memberships, audit_events, \
+         pos_sales, sumup_payment_attempts TO tomos_pos_rls_test",
     )
     .execute(&pool)
     .await
@@ -147,6 +147,42 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
             .expect("test business should be created");
     }
 
+    let sale_a: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO pos_sales (tenant_id, amount_minor, currency, created_by) \
+         VALUES ($1, 1250, 'GBP', $2) RETURNING id",
+    )
+    .bind(tenant_a)
+    .bind(user_a)
+    .fetch_one(&pool)
+    .await
+    .expect("tenant A sale should be created");
+    let sale_b: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO pos_sales (tenant_id, amount_minor, currency, created_by) \
+         VALUES ($1, 2500, 'GBP', $2) RETURNING id",
+    )
+    .bind(tenant_b)
+    .bind(user_b)
+    .fetch_one(&pool)
+    .await
+    .expect("tenant B sale should be created");
+
+    for (tenant_id, sale_id, suffix) in [
+        (tenant_a, sale_a, "a"),
+        (tenant_b, sale_b, "b"),
+    ] {
+        sqlx::query(
+            "INSERT INTO sumup_payment_attempts \
+             (tenant_id, sale_id, reader_id, client_transaction_id, merchant_code, amount_minor, currency) \
+             VALUES ($1, $2, 'reader-test', $3, 'merchant-test', 1250, 'GBP')",
+        )
+        .bind(tenant_id)
+        .bind(sale_id)
+        .bind(format!("rls-payment-{suffix}-{}", uuid::Uuid::new_v4()))
+        .execute(&pool)
+        .await
+        .expect("tenant payment attempt should be created");
+    }
+
     let mut tx = pool
         .begin()
         .await
@@ -171,6 +207,19 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         "user context must reveal only the authenticated user's memberships"
     );
 
+    let sales_without_context: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM pos_sales")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("sales query without tenant context should succeed");
+    let attempts_without_context: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sumup_payment_attempts")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("payment attempts query without tenant context should succeed");
+    assert_eq!(sales_without_context, 0, "no tenant context must hide sales");
+    assert_eq!(attempts_without_context, 0, "no tenant context must hide payment attempts");
+
     let without_context: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM businesses")
         .fetch_one(&mut *tx)
         .await
@@ -185,6 +234,18 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         .execute(&mut *tx)
         .await
         .expect("tenant context should be set transaction-locally");
+
+    let visible_sales: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos_sales")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("tenant-scoped sales query should succeed");
+    let visible_attempts: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sumup_payment_attempts")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("tenant-scoped payment attempt query should succeed");
+    assert_eq!(visible_sales, 1, "tenant A must see only its own sale");
+    assert_eq!(visible_attempts, 1, "tenant A must see only its own payment attempt");
 
     let visible: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM businesses")
         .fetch_one(&mut *tx)
