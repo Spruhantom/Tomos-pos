@@ -293,19 +293,6 @@ pub async fn start_sumup_payment(
     ))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::sumup_currency_minor_unit;
-
-    #[test]
-    fn supported_sumup_currencies_use_their_minor_unit_exponent() {
-        assert_eq!(sumup_currency_minor_unit("GBP"), Some(2));
-        assert_eq!(sumup_currency_minor_unit("EUR"), Some(2));
-        assert_eq!(sumup_currency_minor_unit("CLP"), Some(0));
-        assert_eq!(sumup_currency_minor_unit("XYZ"), None);
-    }
-}
-
 /// Read the current sale state after asynchronous payment processing.
 pub async fn get_sale(
     State(state): State<AuthState>,
@@ -343,3 +330,17 @@ pub async fn get_sale(
         status: sale.status,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::sumup_currency_minor_unit;
+
+    #[test]
+    fn supported_sumup_currencies_use_their_minor_unit_exponent() {
+        assert_eq!(sumup_currency_minor_unit("GBP"), Some(2));
+        assert_eq!(sumup_currency_minor_unit("EUR"), Some(2));
+        assert_eq!(sumup_currency_minor_unit("CLP"), Some(0));
+        assert_eq!(sumup_currency_minor_unit("XYZ"), None);
+    }
+}
+
