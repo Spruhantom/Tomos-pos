@@ -79,6 +79,20 @@ pub async fn take_cash_payment(
     if sale.status != "unpaid" {
         return Err(StatusCode::CONFLICT);
     }
+    let sumup_pending: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM sumup_payment_attempts WHERE sale_id = $1 AND status = 'pending')",
+    )
+    .bind(sale.id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, sale_id = %sale.id, "pending SumUp attempt lookup failed");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    if sumup_pending {
+        return Err(StatusCode::CONFLICT);
+    }
+
     let change = calculate_change(sale.amount_minor, tendered)?;
 
     let payment_id: uuid::Uuid = sqlx::query_scalar(
