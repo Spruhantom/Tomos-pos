@@ -270,10 +270,7 @@ struct UserTenantRow {
 }
 
 /// Discover only the authenticated user's active tenant memberships.
-pub async fn list_user_tenants(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-) -> Response {
+pub async fn list_user_tenants(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let Some(token) = token_from_headers(&headers) else {
         return error(StatusCode::UNAUTHORIZED, "authentication required");
     };
@@ -351,12 +348,14 @@ pub async fn list_user_tenants(
 
     let tenants = rows
         .into_iter()
-        .map(|row| serde_json::json!({
-            "tenant_id": row.tenant_id,
-            "membership_id": row.membership_id,
-            "display_name": row.display_name,
-            "slug": row.slug
-        }))
+        .map(|row| {
+            serde_json::json!({
+                "tenant_id": row.tenant_id,
+                "membership_id": row.membership_id,
+                "display_name": row.display_name,
+                "slug": row.slug
+            })
+        })
         .collect::<Vec<_>>();
 
     Json(serde_json::json!({ "tenants": tenants })).into_response()
