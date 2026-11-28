@@ -194,6 +194,7 @@ pub async fn start_sumup_payment(
         &state.db,
         NewAttempt {
             tenant_id: context.tenant_id,
+            actor_user_id: context.user_id,
             sale_id: sale.id,
             reader_id: &configured_reader,
             client_transaction_id: &client_transaction_id,
