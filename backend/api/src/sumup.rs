@@ -6,7 +6,9 @@ use axum::{
 use rand::{rngs::OsRng, RngCore};
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
-use tomos_sumup_bridge::{PaymentAttempt, PaymentOutcome, SoloWebhookEvent, SOLO_TRANSACTION_UPDATED};
+use tomos_sumup_bridge::{
+    PaymentAttempt, PaymentOutcome, SoloWebhookEvent, SOLO_TRANSACTION_UPDATED,
+};
 use url::Url;
 
 use crate::auth::AuthState;
