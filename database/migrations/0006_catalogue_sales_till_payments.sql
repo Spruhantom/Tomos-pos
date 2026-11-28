@@ -172,7 +172,7 @@ DO $$
 DECLARE table_name TEXT;
 BEGIN
     FOREACH table_name IN ARRAY ARRAY[
-        'products', 'till_sessions', 'sales', 'sale_items',
+        'products', 'business_sale_counters', 'till_sessions', 'sales', 'sale_items',
         'payment_tenders', 'till_cash_movements'
     ] LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', table_name);
