@@ -180,6 +180,7 @@ export default function Home() {
     setBusy(true); setError(""); setNotice("");
     try {
       let saleId = checkoutSaleId;
+      let saleLinesForReceipt = pendingSaleLines.length ? pendingSaleLines : basket;
       if (!saleId) {
         const sale = await api<{ id: string; amount_minor: number; currency: string; lines: Array<{ product_id: string; name: string; sku: string | null; quantity: number; unit_price_minor: number; tax_rate_bps: number }> }>("sales/basket", {
           method: "POST", tenantId,
@@ -188,13 +189,14 @@ export default function Home() {
         saleId = sale.id;
         const snapshots = sale.lines.map((line) => ({ product: { id: line.product_id, name: line.name, sku: line.sku, unit_price_minor: line.unit_price_minor, currency: sale.currency, tax_rate_bps: line.tax_rate_bps, is_active: true }, quantity: line.quantity }));
         setPendingSaleLines(snapshots);
+        saleLinesForReceipt = snapshots;
         setCheckoutSaleId(saleId);
       }
       const paid = await api<CashReceipt>("sales/" + saleId + "/payments/cash", {
         method: "POST", tenantId, body: { tendered_minor: tenderedMinor },
       });
       setReceipt(paid);
-      setReceiptLines(pendingSaleLines.length ? pendingSaleLines : basket);
+      setReceiptLines(saleLinesForReceipt);
       setBasket([]);
       setPendingSaleLines([]);
       setTendered("");
