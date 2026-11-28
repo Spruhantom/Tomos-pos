@@ -4,7 +4,7 @@ CREATE TABLE pos_cash_payments (
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
     sale_id UUID NOT NULL,
     tendered_minor BIGINT NOT NULL CHECK (tendered_minor > 0),
-    change_minor BIGINT NOT NULL CHECK (change_minor >= 0),
+    change_minor BIGINT NOT NULL CHECK (change_minor >= 0 AND change_minor <= tendered_minor),
     received_by UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, sale_id),
