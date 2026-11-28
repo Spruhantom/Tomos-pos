@@ -51,10 +51,14 @@
 - [ ] Country-specific address validation, timezone database validation, new-tenant provisioning and owner invitations.
 
 ## M3 — Web shell and branding
-- Next.js/TypeScript application.
-- Login and business selection.
-- Responsive admin shell and POS shell.
-- TomOS default theme and tenant branding configuration.
+- [x] Next.js/TypeScript management application foundation.
+- [x] Login and authenticated tenant discovery/business selection.
+- [x] Responsive management shell and TomOS dark theme.
+- [x] Business settings, location management, staff invitations and membership removal screens.
+- [x] Custom role creation and permission selection screen.
+- [ ] End-to-end browser tests and accessibility review.
+- [ ] POS checkout shell and tenant branding configuration.
+- [ ] Installable PWA, service worker and offline application shell.
 
 ## M4 — Catalogue and inventory
 - Products, services, categories, variants and barcodes.

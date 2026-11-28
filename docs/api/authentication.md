@@ -43,6 +43,10 @@ Login attempts are rate-limited per normalized email identity: the tenth attempt
 
 Set `COOKIE_SECURE=true` whenever the application is served over HTTPS. The sample development environment sets it to false for localhost HTTP only. Production deployments must use HTTPS and Secure cookies.
 
+## Tenant discovery
+
+`GET /api/v1/auth/tenants` requires a valid session cookie and returns only the authenticated user's active tenant memberships, including tenant ID, display name, slug and membership ID. The handler validates the session, sets `app.user_id` transaction-locally, and relies on the membership self-lookup RLS policy. The client must still send the selected tenant in `X-Tenant-ID` for tenant-scoped API routes.
+
 ## Current limitations — not production ready
 
 - Staff invitation creation, listing and revocation are implemented. Tenant-scoped staff membership listing/removal and audited role assignment/removal are also available; membership reactivation remains outstanding.
@@ -50,7 +54,7 @@ Set `COOKIE_SECURE=true` whenever the application is served over HTTPS. The samp
 - MFA, password reset, email verification and session/device management are outstanding.
 - Tenant-scoped authorisation middleware is implemented for the tenant context and staff invitation endpoints; every future business route still needs explicit permission middleware and tenant-scoped transactions.
 - Additional business registration is available within an existing tenant. Creating a new tenant and inviting its first owner are not yet implemented; staff invitations are available after first-run setup.
-- The API currently has no web frontend.
+- The Next.js management interface is under development in `frontend/web`; it currently covers login, tenant selection, business settings, locations, staff invitations and custom roles. It is not yet an installable/offline PWA or a checkout client.
 
 Do not expose this API to the public internet or use it for live business data until the outstanding security controls and integration tests are complete.
 
