@@ -9,6 +9,7 @@ rust-version.workspace = true
 aes-gcm = "0.10"
 argon2 = "0.5"
 base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
 axum = "0.8"
 dotenvy = "0.15"
 hex = "0.4"
@@ -22,4 +23,5 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = "2"
+urlencoding = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
