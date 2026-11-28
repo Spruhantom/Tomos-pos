@@ -598,7 +598,8 @@ pub async fn webhook(
     if verified.as_ref().is_none_or(|body| body["verification_status"] != "SUCCESS") {
         return error(StatusCode::UNAUTHORIZED, "PayPal webhook signature is invalid");
     }
-    if event["event_type"] != "PAYMENT.CAPTURE.COMPLETED" {
+    let event_type = event["event_type"].as_str().unwrap_or("");
+    if !matches!(event_type, "PAYMENT.CAPTURE.COMPLETED" | "PAYMENT.CAPTURE.DENIED") {
         return StatusCode::NO_CONTENT.into_response();
     }
     let custom_id = event["resource"]["custom_id"].as_str().unwrap_or("");
@@ -625,14 +626,20 @@ pub async fn webhook(
     }
     let order_id = event["resource"]["supplementary_data"]["related_ids"]["order_id"]
         .as_str().unwrap_or("");
+    let (tender_status, sale_status) = if event_type == "PAYMENT.CAPTURE.COMPLETED" {
+        ("captured", "completed")
+    } else {
+        ("failed", "cancelled")
+    };
     let update = sqlx::query(
-        "UPDATE payment_tenders SET status = 'captured', captured_at = now() \
+        "UPDATE payment_tenders SET status = $4, captured_at = CASE WHEN $4 = 'captured' THEN now() ELSE NULL END \
          WHERE tenant_id = $1 AND sale_id = $2 AND method = 'paypal' AND status = 'pending' \
          AND ($3 = '' OR provider_reference = $3)",
     )
     .bind(tenant_id)
     .bind(sale_id)
     .bind(order_id)
+    .bind(tender_status)
     .execute(&mut *tx)
     .await;
     if let Err(err) = update {
@@ -640,12 +647,14 @@ pub async fn webhook(
         return error(StatusCode::INTERNAL_SERVER_ERROR, "webhook could not be processed");
     }
     if let Err(err) = sqlx::query(
-        "UPDATE sales SET status = 'completed', completed_at = now() \
+        "UPDATE sales SET status = $3, completed_at = CASE WHEN $3 = 'completed' THEN now() ELSE NULL END \
          WHERE tenant_id = $1 AND id = $2 AND status = 'awaiting_payment' \
-         AND EXISTS (SELECT 1 FROM payment_tenders WHERE tenant_id = $1 AND sale_id = $2 AND method = 'paypal' AND status = 'captured')",
+         AND EXISTS (SELECT 1 FROM payment_tenders WHERE tenant_id = $1 AND sale_id = $2 AND method = 'paypal' AND status = $4)",
     )
     .bind(tenant_id)
     .bind(sale_id)
+    .bind(sale_status)
+    .bind(tender_status)
     .execute(&mut *tx)
     .await
     {
