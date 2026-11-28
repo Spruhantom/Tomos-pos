@@ -21,7 +21,7 @@ CREATE INDEX pos_sales_tenant_created_idx
 -- Financial amount/currency snapshots cannot be silently edited after sale creation.
 -- Paid and void sales are terminal; corrections require explicit reversal records.
 CREATE FUNCTION protect_pos_sale_financial_fields() RETURNS trigger
-LANGUAGE plpgsql AS $
+LANGUAGE plpgsql AS $fn$
 BEGIN
     IF NEW.amount_minor IS DISTINCT FROM OLD.amount_minor
        OR NEW.currency IS DISTINCT FROM OLD.currency THEN
@@ -35,7 +35,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$;
+$fn$;
 
 CREATE TRIGGER pos_sales_financial_fields_immutable
     BEFORE UPDATE ON pos_sales
