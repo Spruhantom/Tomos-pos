@@ -166,10 +166,7 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
     .await
     .expect("tenant B sale should be created");
 
-    for (tenant_id, sale_id, suffix) in [
-        (tenant_a, sale_a, "a"),
-        (tenant_b, sale_b, "b"),
-    ] {
+    for (tenant_id, sale_id, suffix) in [(tenant_a, sale_a, "a"), (tenant_b, sale_b, "b")] {
         sqlx::query(
             "INSERT INTO sumup_payment_attempts \
              (tenant_id, sale_id, reader_id, client_transaction_id, merchant_code, amount_minor, currency) \
@@ -207,18 +204,23 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         "user context must reveal only the authenticated user's memberships"
     );
 
-    let sales_without_context: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM pos_sales")
-            .fetch_one(&mut *tx)
-            .await
-            .expect("sales query without tenant context should succeed");
+    let sales_without_context: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pos_sales")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("sales query without tenant context should succeed");
     let attempts_without_context: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM sumup_payment_attempts")
             .fetch_one(&mut *tx)
             .await
             .expect("payment attempts query without tenant context should succeed");
-    assert_eq!(sales_without_context, 0, "no tenant context must hide sales");
-    assert_eq!(attempts_without_context, 0, "no tenant context must hide payment attempts");
+    assert_eq!(
+        sales_without_context, 0,
+        "no tenant context must hide sales"
+    );
+    assert_eq!(
+        attempts_without_context, 0,
+        "no tenant context must hide payment attempts"
+    );
 
     let without_context: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM businesses")
         .fetch_one(&mut *tx)
@@ -239,13 +241,15 @@ async fn row_level_security_hides_other_tenants_from_runtime_role() {
         .fetch_one(&mut *tx)
         .await
         .expect("tenant-scoped sales query should succeed");
-    let visible_attempts: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM sumup_payment_attempts")
-            .fetch_one(&mut *tx)
-            .await
-            .expect("tenant-scoped payment attempt query should succeed");
+    let visible_attempts: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sumup_payment_attempts")
+        .fetch_one(&mut *tx)
+        .await
+        .expect("tenant-scoped payment attempt query should succeed");
     assert_eq!(visible_sales, 1, "tenant A must see only its own sale");
-    assert_eq!(visible_attempts, 1, "tenant A must see only its own payment attempt");
+    assert_eq!(
+        visible_attempts, 1,
+        "tenant A must see only its own payment attempt"
+    );
 
     let visible: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM businesses")
         .fetch_one(&mut *tx)
