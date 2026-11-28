@@ -70,8 +70,10 @@
 - Suppliers, purchase orders and goods receiving.
 
 ## M5 — Sales and till operations
-- Basket and checkout workflow.
-- Tax calculation snapshots.
+- [x] Server-calculated itemised basket API with immutable product, price and VAT snapshots.
+- [x] VAT-inclusive line calculations using integer minor units and half-up tax rounding.
+- [ ] Basket editing/held sales and checkout UI.
+- [ ] Jurisdiction-specific tax rules and inclusive/exclusive pricing.
 - Till sessions, cash movements and receipts.
 - Refunds, reversals and held sales.
 
@@ -81,7 +83,7 @@
 - [x] Basic tenant-scoped sale amount records, authenticated Solo checkout initiation and sale-status lookup routes.
 - [x] Successful webhook atomically settles unpaid sale and records payment audit event.
 - [x] Ambiguous network/5xx checkout outcomes remain pending for reconciliation; definitive 4xx provider rejections are marked failed.
-- [ ] Full basket/tax/receipt integration and provider reconciliation.
+- [ ] Full basket-to-SumUp integration, receipts and provider reconciliation.
 - Sandbox integration for selected card/payment-link providers.
 - Signed webhook processing, idempotency and reconciliation.
 - Provider and terminal capability matrix.
