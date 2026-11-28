@@ -28,7 +28,8 @@ struct PayPalConfig {
     partner_id: String,
     webhook_id: String,
     base_url: String,
-    return_url: String,
+    onboarding_return_url: String,
+    checkout_return_url: String,
     cancel_url: String,
 }
 
@@ -47,7 +48,8 @@ impl PayPalConfig {
             } else {
                 "https://api-m.paypal.com".to_string()
             },
-            return_url: required("PAYPAL_RETURN_URL")?,
+            onboarding_return_url: required("PAYPAL_ONBOARDING_RETURN_URL")?,
+            checkout_return_url: required("PAYPAL_CHECKOUT_RETURN_URL")?,
             cancel_url: required("PAYPAL_CANCEL_URL")?,
         })
     }
@@ -147,7 +149,7 @@ pub async fn connect_business(
             }
         }],
         "partner_config_override": {
-            "return_url": config.return_url,
+            "return_url": config.onboarding_return_url,
             "return_url_description": "Return to TomOS POS to finish connecting PayPal"
         }
     });
@@ -387,8 +389,8 @@ pub async fn create_order(
             }
         }],
         "application_context": {
-            "return_url": config.return_url,
-            "cancel_url": config.cancel_url,
+            "return_url": format!("{}?paypal_sale_id={}", config.checkout_return_url, sale_id),
+            "cancel_url": format!("{}?paypal_cancelled={}", config.cancel_url, sale_id),
             "user_action": "PAY_NOW"
         }
     });
