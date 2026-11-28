@@ -2665,14 +2665,17 @@ pub async fn list_businesses(
         Err(db_error) => {
             tracing::error!(%db_error, "business list query failed");
             return error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "businesses could not be listed",
-        );
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "businesses could not be listed",
+            );
         }
     };
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "business list commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "businesses could not be listed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "businesses could not be listed",
+        );
     }
     let businesses = rows
         .into_iter()
@@ -2756,9 +2759,9 @@ pub async fn update_business(
         Err(db_error) => {
             tracing::error!(%db_error, "business update query failed");
             return error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "business could not be updated",
-        );
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "business could not be updated",
+            );
         }
     };
     if updated.rows_affected() != 1 {
@@ -2786,7 +2789,10 @@ pub async fn update_business(
     }
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "business update commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "business could not be updated");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "business could not be updated",
+        );
     }
     StatusCode::NO_CONTENT.into_response()
 }
@@ -2821,14 +2827,17 @@ pub async fn list_business_locations(
         Err(db_error) => {
             tracing::error!(%db_error, "location list query failed");
             return error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "locations could not be listed",
-        );
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "locations could not be listed",
+            );
         }
     };
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "location list commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "locations could not be listed");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "locations could not be listed",
+        );
     }
     let locations = rows
         .into_iter()
@@ -2900,9 +2909,9 @@ pub async fn create_business_location(
         Err(db_error) => {
             tracing::error!(%db_error, "location insert failed");
             return error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "location could not be created",
-        );
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "location could not be created",
+            );
         }
     };
     if let Err(db_error) = crate::audit::record_event(
@@ -2923,7 +2932,10 @@ pub async fn create_business_location(
     }
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "location creation commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be created");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "location could not be created",
+        );
     }
     (
         StatusCode::CREATED,
@@ -2967,7 +2979,13 @@ pub async fn update_business_location(
     .bind(context.tenant_id)
     .bind(location_id)
     .bind(request.name.trim())
-    .bind(request.location_code.as_deref().map(str::trim).filter(|v| !v.is_empty()))
+    .bind(
+        request
+            .location_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty()),
+    )
     .bind(&request.address)
     .bind(request.is_active)
     .execute(&mut *tx)
@@ -2980,9 +2998,9 @@ pub async fn update_business_location(
         Err(db_error) => {
             tracing::error!(%db_error, "location update query failed");
             return error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "location could not be updated",
-        );
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "location could not be updated",
+            );
         }
     };
     if updated.rows_affected() != 1 {
@@ -3006,7 +3024,10 @@ pub async fn update_business_location(
     }
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "location update commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "location could not be updated");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "location could not be updated",
+        );
     }
     StatusCode::NO_CONTENT.into_response()
 }
