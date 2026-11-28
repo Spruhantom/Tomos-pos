@@ -12,14 +12,16 @@ use url::Url;
 use crate::auth::AuthState;
 
 #[derive(Debug, Clone)]
-pub struct CreatedAttempt {
+#[allow(dead_code)]
+pub(crate) struct CreatedAttempt {
     pub id: uuid::Uuid,
     /// Secret callback token. Return it to the caller once; never persist or log it.
     pub callback_token: String,
     pub return_url: String,
 }
 
-pub struct NewAttempt<'a> {
+#[allow(dead_code)]
+pub(crate) struct NewAttempt<'a> {
     pub tenant_id: uuid::Uuid,
     pub sale_id: uuid::Uuid,
     pub reader_id: &'a str,
@@ -32,13 +34,18 @@ pub struct NewAttempt<'a> {
 
 /// Creates a durable pending attempt before the checkout is sent to SumUp.
 /// The returned URL contains a 256-bit random bearer token; only its digest is stored.
-pub async fn create_attempt(
+#[allow(dead_code)]
+pub(crate) async fn create_attempt(
     db: &PgPool,
     input: NewAttempt<'_>,
 ) -> Result<CreatedAttempt, sqlx::Error> {
     let base_url = Url::parse(input.public_base_url)
         .map_err(|error| sqlx::Error::Protocol(format!("invalid public base URL: {error}")))?;
-    if base_url.scheme() != "https" || base_url.host_str().is_none() {
+    if base_url.scheme() != "https"
+        || base_url.host_str().is_none()
+        || !base_url.username().is_empty()
+        || base_url.password().is_some()
+    {
         return Err(sqlx::Error::Protocol(
             "SumUp callback base URL must be an HTTPS origin".into(),
         ));
@@ -129,7 +136,7 @@ struct AttemptRow {
 /// The callback URL's per-attempt bearer token, HTTPS, merchant and transaction
 /// reference checks protect this endpoint. The Cloud API event contract does
 /// not document a signature header, so no fictitious signature check is used.
-pub async fn webhook(
+pub(crate) async fn webhook(
     State(state): State<AuthState>,
     Path(token): Path<String>,
     Json(event): Json<SoloWebhookEvent>,
