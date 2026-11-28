@@ -187,8 +187,7 @@ pub async fn start_sumup_payment(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let minor_unit =
-        sumup_currency_minor_unit(&sale.currency).ok_or(StatusCode::BAD_REQUEST)?;
+    let minor_unit = sumup_currency_minor_unit(&sale.currency).ok_or(StatusCode::BAD_REQUEST)?;
     let public_base_url =
         std::env::var("SUMUP_PUBLIC_BASE_URL").map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let client_transaction_id = uuid::Uuid::new_v4().to_string();
@@ -343,4 +342,3 @@ mod tests {
         assert_eq!(sumup_currency_minor_unit("XYZ"), None);
     }
 }
-
