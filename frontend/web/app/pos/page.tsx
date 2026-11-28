@@ -170,7 +170,7 @@ export default function PosPage() {
   async function closeTill() {
     if (!till) return;
     const countedMinor = poundsToMinor(closingCount);
-    if (countedMinor < 0) { setError("Enter the counted cash total."); return; }
+    if (!closingCount.trim() || countedMinor < 0) { setError("Enter the counted cash total."); return; }
     setBusy(true); setError(""); setNotice("");
     try {
       const result = await api<{ expected_cash_minor: number; counted_cash_minor: number; variance_minor: number }>(
