@@ -8,11 +8,13 @@ mod client;
 mod config;
 mod error;
 mod models;
+mod webhook;
 
 pub use client::SumUpClient;
 pub use config::SumUpConfig;
 pub use error::{Result, SumUpError};
 pub use models::{CheckoutRequest, Money, Reader, ReaderStatus};
+pub use webhook::{ApplyOutcome, AttemptStatus, PaymentAttempt, PaymentOutcome, SoloWebhookEvent, SoloWebhookPayload, SOLO_TRANSACTION_UPDATED};
 
 /// Provider identity used by the POS payment-adapter registry.
 pub const PROVIDER_ID: &str = "sumup";
