@@ -27,7 +27,6 @@ pub struct CashPaymentResponse {
     pub status: &'static str,
 }
 
-#[derive(FromRow)]
 fn calculate_change(amount_minor: i64, tendered_minor: i64) -> Result<i64, StatusCode> {
     if amount_minor <= 0 || tendered_minor < amount_minor {
         return Err(StatusCode::BAD_REQUEST);
@@ -37,6 +36,7 @@ fn calculate_change(amount_minor: i64, tendered_minor: i64) -> Result<i64, Statu
         .ok_or(StatusCode::BAD_REQUEST)
 }
 
+#[derive(FromRow)]
 struct CashSale {
     id: uuid::Uuid,
     amount_minor: i64,
