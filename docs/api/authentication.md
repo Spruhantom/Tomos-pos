@@ -45,7 +45,7 @@ Set `COOKIE_SECURE=true` whenever the application is served over HTTPS. The samp
 
 ## Current limitations — not production ready
 
-- Staff invitation creation, listing and revocation are implemented. Tenant-scoped staff membership listing/removal and audited role assignment/removal are also available; custom role creation, permission editing and membership reactivation remain outstanding.
+- Staff invitation creation, listing and revocation are implemented. Tenant-scoped staff membership listing/removal and audited role assignment/removal are also available; membership reactivation remains outstanding.
 - CSRF/origin validation currently covers authentication state changes; all future cookie-authenticated mutation routes must apply the same origin validation or a stronger CSRF token strategy.
 - MFA, password reset, email verification and session/device management are outstanding.
 - Tenant-scoped authorisation middleware is implemented for the tenant context and staff invitation endpoints; every future business route still needs explicit permission middleware and tenant-scoped transactions.
@@ -91,4 +91,10 @@ The Staff role created during initial setup currently grants only business.read.
 
 `POST /api/v1/staff/memberships/{membership_id}/roles` accepts a JSON `role_id` and assigns an existing role from the selected tenant. `DELETE /api/v1/staff/memberships/{membership_id}/roles/{role_id}` removes an existing assignment. Both operations require `roles.manage`, the exact configured `Origin`, an active non-owner target membership and an assignment to another member (self-role changes are rejected). A member's final role cannot be removed. Successful changes write a `staff.role_changed` audit event in the same transaction.
 
-These endpoints assign existing roles only. They do not create custom roles or edit permission grants; those operations require a separate role-definition workflow and remain outstanding.
+These endpoints assign existing roles only. Custom roles are managed separately:
+
+- `GET /api/v1/staff/permissions` returns the server-owned permission catalogue and descriptions.
+- `POST /api/v1/staff/roles` creates a tenant-scoped custom role using a lowercase kebab-case `role_key`, a display name and a list of permission keys from that catalogue.
+- `PUT /api/v1/staff/roles/{role_id}/permissions` replaces the permission set for a custom role. An empty list creates a role with no permissions.
+
+All three routes require `roles.manage`, tenant authentication and the exact configured `Origin` for mutations. Unknown or duplicate permission keys are rejected. The API does not accept arbitrary permission definitions. The built-in Owner and Staff roles cannot be created or edited through these endpoints. Role creation and permission replacement are transactionally audited in the append-only ledger. Custom role keys are unique within each tenant.
