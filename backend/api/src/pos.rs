@@ -524,25 +524,31 @@ pub async fn checkout(
             return error(StatusCode::INTERNAL_SERVER_ERROR, "sale could not be created");
         }
     };
-    let till_is_open: bool = match sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM till_sessions WHERE tenant_id = $1 AND id = $2 \
-         AND business_id = $3 AND location_id = $4 AND status = 'open')",
+    let locked_till: Option<uuid::Uuid> = match sqlx::query_scalar(
+        "SELECT id FROM till_sessions WHERE tenant_id = $1 AND id = $2 \
+         AND business_id = $3 AND location_id = $4 AND status = 'open' FOR UPDATE",
     )
     .bind(context.tenant_id)
     .bind(request.till_session_id)
     .bind(request.business_id)
     .bind(request.location_id)
-    .fetch_one(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await
     {
         Ok(value) => value,
         Err(db_error) => {
             tracing::error!(%db_error, "checkout till lookup failed");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "sale could not be created");
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "sale could not be created",
+            );
         }
     };
-    if !till_is_open {
-        return error(StatusCode::CONFLICT, "an open till is required for checkout");
+    if locked_till.is_none() {
+        return error(
+            StatusCode::CONFLICT,
+            "an open till is required for checkout",
+        );
     }
 
     let currency: Option<String> = match sqlx::query_scalar(
