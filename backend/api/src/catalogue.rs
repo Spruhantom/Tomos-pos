@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Extension, State},
+    extract::{Extension, Query, State},
     http::StatusCode,
     Json,
 };
@@ -71,9 +71,15 @@ fn clean_optional(value: Option<String>, max_len: usize) -> Option<String> {
         .map(|value| value.chars().take(max_len).collect())
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ProductSearch {
+    pub q: Option<String>,
+}
+
 pub async fn list_products(
     State(state): State<AuthState>,
     Extension(context): Extension<AuthContext>,
+    Query(search): Query<ProductSearch>,
 ) -> Result<Json<Vec<ProductResponse>>, StatusCode> {
     let mut tx = auth::begin_tenant_transaction(&state, &context)
         .await
@@ -82,11 +88,18 @@ pub async fn list_products(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
+    let search_term = search
+        .q
+        .map(|value| value.trim().chars().take(100).collect::<String>())
+        .filter(|value| !value.is_empty());
     let products = sqlx::query_as::<_, ProductRow>(
         "SELECT id, sku, barcode, name, description, unit_price_minor, currency, \
          tax_rate_bps, is_active FROM pos_products WHERE is_active = TRUE \
-         ORDER BY lower(name), id",
+         AND ($1::text IS NULL OR name ILIKE '%' || $1 || '%' \
+              OR COALESCE(sku, '') ILIKE '%' || $1 || '%' OR barcode = $1) \
+         ORDER BY lower(name), id LIMIT 200",
     )
+    .bind(search_term)
     .fetch_all(&mut *tx)
     .await
     .map_err(|error| {
