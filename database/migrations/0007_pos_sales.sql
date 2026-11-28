@@ -18,6 +18,29 @@ CREATE TABLE pos_sales (
 CREATE INDEX pos_sales_tenant_created_idx
     ON pos_sales(tenant_id, created_at DESC);
 
+-- Financial amount/currency snapshots cannot be silently edited after sale creation.
+-- Paid and void sales are terminal; corrections require explicit reversal records.
+CREATE FUNCTION protect_pos_sale_financial_fields() RETURNS trigger
+LANGUAGE plpgsql AS $
+BEGIN
+    IF NEW.amount_minor IS DISTINCT FROM OLD.amount_minor
+       OR NEW.currency IS DISTINCT FROM OLD.currency THEN
+        RAISE EXCEPTION 'sale amount and currency are immutable';
+    END IF;
+    IF OLD.status IN ('paid', 'void') AND NEW.status IS DISTINCT FROM OLD.status THEN
+        RAISE EXCEPTION 'paid or void sales cannot be reopened';
+    END IF;
+    IF OLD.status = 'paid' AND NEW.paid_at IS DISTINCT FROM OLD.paid_at THEN
+        RAISE EXCEPTION 'paid timestamp is immutable';
+    END IF;
+    RETURN NEW;
+END;
+$;
+
+CREATE TRIGGER pos_sales_financial_fields_immutable
+    BEFORE UPDATE ON pos_sales
+    FOR EACH ROW EXECUTE FUNCTION protect_pos_sale_financial_fields();
+
 ALTER TABLE pos_sales ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pos_sales FORCE ROW LEVEL SECURITY;
 CREATE POLICY pos_sales_tenant_isolation ON pos_sales
