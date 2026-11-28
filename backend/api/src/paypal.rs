@@ -696,6 +696,19 @@ pub async fn capture_order(
             "PayPal sale could not be completed",
         );
     }
+    if let Err(err) = sqlx::query(
+        "UPDATE loyalty_redemptions SET status='redeemed',reserved_sale_id=NULL,redeemed_sale_id=$3,redeemed_at=now() \
+         WHERE tenant_id=$1 AND reserved_sale_id=$2 AND status='reserved'",
+    )
+    .bind(context.tenant_id)
+    .bind(sale_id)
+    .bind(sale_id)
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(%err, "PayPal loyalty reward finalisation failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal sale could not be completed");
+    }
     if let Err(err) = crate::audit::record_event(
         &mut tx,
         &context,
@@ -861,6 +874,28 @@ pub async fn webhook(
             "webhook could not be processed",
         );
     }
+    let reward_update = if sale_status == "completed" {
+        sqlx::query(
+            "UPDATE loyalty_redemptions SET status='redeemed',reserved_sale_id=NULL,redeemed_sale_id=$3,redeemed_at=now() WHERE tenant_id=$1 AND reserved_sale_id=$2 AND status='reserved'",
+        )
+        .bind(tenant_id)
+        .bind(sale_id)
+        .bind(sale_id)
+        .execute(&mut *tx)
+        .await
+    } else {
+        sqlx::query(
+            "UPDATE loyalty_redemptions SET status='issued',reserved_sale_id=NULL WHERE tenant_id=$1 AND reserved_sale_id=$2 AND status='reserved'",
+        )
+        .bind(tenant_id)
+        .bind(sale_id)
+        .execute(&mut *tx)
+        .await
+    };
+    if let Err(err) = reward_update {
+        tracing::error!(%err, "PayPal webhook loyalty reward reconciliation failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "webhook could not be processed");
+    }
     if let Err(err) = tx.commit().await {
         tracing::error!(%err, "PayPal webhook commit failed");
         return error(
@@ -924,6 +959,17 @@ pub async fn cancel_order(
             StatusCode::INTERNAL_SERVER_ERROR,
             "PayPal checkout could not be cancelled",
         );
+    }
+    if let Err(err) = sqlx::query(
+        "UPDATE loyalty_redemptions SET status='issued',reserved_sale_id=NULL WHERE tenant_id=$1 AND reserved_sale_id=$2 AND status='reserved'",
+    )
+    .bind(context.tenant_id)
+    .bind(sale_id)
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(%err, "PayPal cancellation loyalty reward release failed");
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "PayPal checkout could not be cancelled");
     }
     if let Err(err) = crate::audit::record_event(
         &mut tx,
