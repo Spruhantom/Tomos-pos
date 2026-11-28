@@ -24,6 +24,13 @@ pub struct CashPaymentResponse {
 }
 
 #[derive(FromRow)]
+fn calculate_change(amount_minor: i64, tendered_minor: i64) -> Result<i64, StatusCode> {
+    if amount_minor <= 0 || tendered_minor < amount_minor {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    tendered_minor.checked_sub(amount_minor).ok_or(StatusCode::BAD_REQUEST)
+}
+
 struct CashSale {
     id: uuid::Uuid,
     amount_minor: i64,
@@ -66,10 +73,7 @@ pub async fn take_cash_payment(
     if sale.status != "unpaid" {
         return Err(StatusCode::CONFLICT);
     }
-    if tendered < sale.amount_minor {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-    let change = tendered.checked_sub(sale.amount_minor).ok_or(StatusCode::BAD_REQUEST)?;
+    let change = calculate_change(sale.amount_minor, tendered)?;
 
     let payment_id: uuid::Uuid = sqlx::query_scalar(
         "INSERT INTO pos_cash_payments          (tenant_id, sale_id, tendered_minor, change_minor, received_by)          VALUES ($1, $2, $3, $4, $5) RETURNING id",
@@ -134,4 +138,26 @@ pub async fn take_cash_payment(
             status: "paid",
         }),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::calculate_change;
+
+    #[test]
+    fn exact_cash_has_no_change() {
+        assert_eq!(calculate_change(1_250, 1_250), Ok(0));
+    }
+
+    #[test]
+    fn overpayment_returns_change_in_minor_units() {
+        assert_eq!(calculate_change(1_250, 2_000), Ok(750));
+    }
+
+    #[test]
+    fn rejects_underpayment_and_invalid_sale_amounts() {
+        assert!(calculate_change(1_250, 1_249).is_err());
+        assert!(calculate_change(0, 1_000).is_err());
+        assert!(calculate_change(-1, 1_000).is_err());
+    }
 }
