@@ -12,6 +12,8 @@ pub enum AuditEventType {
     StaffInvitationRevoked,
     StaffDeactivated,
     StaffRoleChanged,
+    RoleCreated,
+    RolePermissionsChanged,
 }
 
 impl AuditEventType {
@@ -23,6 +25,8 @@ impl AuditEventType {
             Self::StaffInvitationRevoked => "staff.invitation_revoked",
             Self::StaffDeactivated => "staff.deactivated",
             Self::StaffRoleChanged => "staff.role_changed",
+            Self::RoleCreated => "role.created",
+            Self::RolePermissionsChanged => "role.permissions_changed",
         }
     }
 }
@@ -33,6 +37,7 @@ pub enum AuditEntityType {
     Business,
     Invitation,
     Membership,
+    Role,
 }
 
 impl AuditEntityType {
@@ -41,6 +46,7 @@ impl AuditEntityType {
             Self::Business => "business",
             Self::Invitation => "staff_invitation",
             Self::Membership => "membership",
+            Self::Role => "role",
         }
     }
 }
@@ -91,5 +97,8 @@ mod tests {
             "staff.role_changed"
         );
         assert_eq!(AuditEntityType::Membership.as_str(), "membership");
+        assert_eq!(AuditEventType::RoleCreated.as_str(), "role.created");
+        assert_eq!(AuditEventType::RolePermissionsChanged.as_str(), "role.permissions_changed");
+        assert_eq!(AuditEntityType::Role.as_str(), "role");
     }
 }
