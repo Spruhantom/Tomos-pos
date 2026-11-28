@@ -47,7 +47,8 @@
 - [x] Tenant-scoped business listing and legal/trading settings update.
 - [x] Tenant-scoped location listing, creation, update and deactivation.
 - [x] Permission enforcement, exact-Origin mutation checks and transactional audit events.
-- [ ] Country-specific address validation, timezone database validation and additional-business provisioning.
+- [x] Additional business creation within an existing tenant, with transactional audit event.
+- [ ] Country-specific address validation, timezone database validation, new-tenant provisioning and owner invitations.
 
 ## M3 — Web shell and branding
 - Next.js/TypeScript application.
