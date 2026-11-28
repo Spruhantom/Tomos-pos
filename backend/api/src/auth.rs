@@ -1276,7 +1276,10 @@ pub async fn revoke_staff_invitation(
 
     if let Err(db_error) = tx.commit().await {
         tracing::error!(%db_error, "staff invitation revocation commit failed");
-        return error(StatusCode::INTERNAL_SERVER_ERROR, "invitation could not be revoked");
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invitation could not be revoked",
+        );
     }
 
     StatusCode::NO_CONTENT.into_response()
