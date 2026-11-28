@@ -211,3 +211,33 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER tenders_immutable_after_capture
     BEFORE UPDATE OR DELETE ON payment_tenders
     FOR EACH ROW EXECUTE FUNCTION prevent_tender_mutation_after_capture();
+
+CREATE FUNCTION prevent_completed_sale_item_mutation() RETURNS trigger AS $$
+DECLARE
+    target_tenant UUID;
+    target_sale UUID;
+BEGIN
+    target_tenant := OLD.tenant_id;
+    target_sale := OLD.sale_id;
+    IF TG_OP = 'UPDATE' THEN
+        target_tenant := NEW.tenant_id;
+        target_sale := NEW.sale_id;
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM sales
+        WHERE tenant_id = target_tenant AND id = target_sale
+          AND status IN ('completed', 'refunded')
+    ) THEN
+        RAISE EXCEPTION 'completed sale lines are immutable';
+    END IF;
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER sale_items_immutable_after_completion
+    BEFORE UPDATE OR DELETE ON sale_items
+    FOR EACH ROW EXECUTE FUNCTION prevent_completed_sale_item_mutation();
+
